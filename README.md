@@ -43,6 +43,12 @@ This project splits the work in two:
 - Temporary files: the server deletes cached videos automatically (30 min without use, and on restart). The TV never
   stores anything.
 
+## Download
+
+Prebuilt `.ipk` packages are attached to every
+[Release](https://github.com/arrietaoadrian/telegram-webos-3.x/releases). Grab the latest
+`com.telegramtv.app_*.ipk` and install it directly on the TV — no build required.
+
 ## Prerequisites
 
 1. A Telegram `api_id` and `api_hash` from <https://my.telegram.org> → API development tools.
@@ -73,17 +79,32 @@ nano config.json       # put your apiId/apiHash
 node server.js
 ```
 
-### 2. Install the app on the TV
+### 2. Build and install the app on the TV
 
-Package it with the [webOS CLI](https://webostv.developer.lge.com/develop/tools/cli-introduction):
+You have two options: download the prebuilt `.ipk` from
+[Releases](https://github.com/arrietaoadrian/telegram-webos-3.x/releases) (recommended), or build it from source.
 
-```bash
-cd app
-ares-package . -o bin --no-minify
-```
+**Build from source** (requires [Node.js](https://nodejs.org) ≥ 16):
 
-This produces `bin/com.telegramtv.app_0.1.0_all.ipk`. Install it on the TV (Homebrew Channel, Dev Manager, or
-`ares-install`).
+1. Install the webOS CLI:
+   ```bash
+   npm install -g @webosose/ares-cli
+   ```
+
+2. Package the app (this produces the `.ipk`):
+   ```bash
+   cd app
+   ares-package . -o bin --no-minify
+   ```
+   The output is `bin/com.telegramtv.app_0.1.0_all.ipk`.
+
+3. Install the `.ipk` on the TV. Any of these works:
+   - **Homebrew Channel** (recommended on a rooted TV),
+   - **Dev Manager Desktop** (graphical tool),
+   - the CLI, after registering the TV once with `ares-setup-device`:
+     ```bash
+     ares-install -d <tv-name> bin/com.telegramtv.app_0.1.0_all.ipk
+     ```
 
 ### 3. Connect and sign in
 
