@@ -1,0 +1,15 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Sesión y archivos temporales (¡secreto, no subir!)
+server/session.txt
+server/cache/
+
+# Build del IPK
+app/bin/
+*.ipk
+
+# Editor / OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Telegram TV</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app">
+
+    <div id="view-setup" class="view">
+      <div class="box">
+        <div class="logo">Telegram <span>TV</span></div>
+        <div class="sub">Dirección del servidor (el teléfono)</div>
+        <input type="text" id="setup-url" placeholder="http://192.168.1.50:8080" class="focusable">
+        <button id="setup-btn" class="btn-primary focusable">Conectar</button>
+        <div id="setup-msg" class="msg"></div>
+      </div>
+    </div>
+
+    <div id="view-login" class="view hidden">
+      <div class="box">
+        <div class="logo">Iniciar sesión</div>
+        <div class="sub">Escanea este QR con Telegram:<br>Configuración → Dispositivos → Escanear QR</div>
+        <div class="qr-wrap"><img id="qr-img" class="qr" src="" alt="QR"></div>
+        <div id="login-msg" class="msg"></div>
+      </div>
+    </div>
+
+    <div id="view-pass" class="view hidden">
+      <div class="box">
+        <div class="logo">Contraseña</div>
+        <div class="sub">Tu cuenta tiene verificación en dos pasos</div>
+        <input type="password" id="pass-input" placeholder="Contraseña de Telegram" class="focusable">
+        <button id="pass-btn" class="btn-primary focusable">Enviar</button>
+        <div id="pass-msg" class="msg"></div>
+      </div>
+    </div>
+
+    <div id="view-main" class="view hidden">
+      <div class="topbar">
+        <div id="main-title" class="topbar-title">Canales</div>
+        <div class="spacer"></div>
+        <button id="btn-logout" class="btn focusable">Salir</button>
+      </div>
+      <div id="main-content" class="content"></div>
+    </div>
+
+    <div id="view-player" class="view hidden">
+      <video id="video" controls></video>
+      <div class="player-top">
+        <button id="btn-player-back" class="btn focusable">Volver</button>
+        <div id="player-title"></div>
+      </div>
+      <div id="player-msg" class="msg"></div>
+    </div>
+
+    <div id="loading" class="hidden">Cargando...</div>
+  </div>
+  <script src="js/app.js"></script>
+</body>
+</html>

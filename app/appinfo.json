@@ -1,0 +1,14 @@
+{
+    "id": "com.telegramtv.app",
+    "version": "0.1.0",
+    "vendor": "Telegram TV",
+    "type": "web",
+    "main": "index.html",
+    "title": "Telegram TV",
+    "icon": "icon.png",
+    "largeIcon": "icon-large.png",
+    "iconColor": "#2aabee",
+    "uiRevision": 2,
+    "disableBackHistoryAPI": true,
+    "requiredMemory": 80
+}
