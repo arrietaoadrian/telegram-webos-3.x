@@ -22,6 +22,7 @@
       refresh: 'Recargar',
       logout: 'Salir',
       search_ph: 'Buscar en este chat...',
+      search_ph_all: 'Buscar canales...',
       search: 'Buscar',
       lang_switch: 'English',
       no_archived: 'No hay chats archivados.',
@@ -80,6 +81,7 @@
       refresh: 'Refresh',
       logout: 'Log out',
       search_ph: 'Search in this chat...',
+      search_ph_all: 'Search channels...',
       search: 'Search',
       lang_switch: 'Español',
       no_archived: 'No archived chats.',
@@ -137,6 +139,7 @@
     for (var i = 0; i < els.length; i++) els[i].innerHTML = t(els[i].getAttribute('data-i18n'));
     var phs = document.querySelectorAll('[data-i18n-ph]');
     for (var j = 0; j < phs.length; j++) phs[j].setAttribute('placeholder', t(phs[j].getAttribute('data-i18n-ph')));
+    if (curChat === null) $('search-input').setAttribute('placeholder', t('search_ph_all'));
     var lb = $('btn-lang');
     if (lb) lb.textContent = t('lang_switch');
   }
@@ -227,6 +230,7 @@
     $('btn-archive').className = 'btn focusable' + (opts.showArchive ? '' : ' hidden');
     if (opts.archiveLabel) $('btn-archive').textContent = opts.archiveLabel;
     $('search-input').value = '';
+    $('search-input').placeholder = t(curChat ? 'search_ph' : 'search_ph_all');
   }
 
   function stopPolling() {
@@ -524,6 +528,25 @@
     else doGlobalSearch(q);
   }
 
+  function toggleSearch() {
+    var input = $('search-input');
+    var open = input.classList.contains('hidden');
+    if (open) {
+      input.classList.remove('hidden');
+      $('btn-search').classList.remove('hidden');
+      $('btn-search-toggle').textContent = '\u2715';
+      input.focus();
+    } else {
+      input.classList.add('hidden');
+      $('btn-search').classList.add('hidden');
+      $('btn-search-toggle').textContent = '\uD83D\uDD0D';
+      input.value = '';
+      if (curChat) loadMessages('');
+      else if (lastList === 'archived') loadDialogs(true);
+      else loadDialogs(false);
+    }
+  }
+
   // ===== Photos =====
   function openPhoto(msgId) {
     photoList = [];
@@ -806,7 +829,12 @@
     for (var i = 0; i < els.length; i++) if (isVisible(els[i])) out.push(els[i]);
     return out;
   }
-  function focusFirst() { var els = focusables(); if (els.length) els[0].focus(); }
+  function focusFirst() {
+    var els = focusables();
+    for (var i = 0; i < els.length; i++) {
+      if (els[i].id !== 'search-input' && els[i].id !== 'btn-search') { els[i].focus(); return; }
+    }
+  }
   function spatialMove(dx, dy) {
     var els = focusables();
     var cur = document.activeElement;
@@ -920,6 +948,7 @@
       else loadDialogs(false);
     });
     $('btn-search').addEventListener('click', doSearch);
+    $('btn-search-toggle').addEventListener('click', toggleSearch);
     $('search-input').addEventListener('keydown', function (e) { if (e.keyCode === 13) doSearch(); });
     $('btn-lang').addEventListener('click', function () {
       setLang(LANG === 'es' ? 'en' : 'es');
