@@ -164,6 +164,11 @@
   var curMsgId = null;
   var filterType = 'all';
   var controlsTimer = null;
+  var videoUrl = '';
+  var pendingResume = 0;
+  var didSeek = false;
+  var videoRetry = 0;
+  var videoLoadTimer = null;
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -657,47 +662,35 @@
 
   // ===== Player =====
   function mediaEl() { return playingType === 'audio' ? $('audio') : $('video'); }
+  function startVideoLoad() {
+    if (videoLoadTimer) { clearTimeout(videoLoadTimer); videoLoadTimer = null; }
+    var v = $('video');
+    try { v.pause(); } catch (e) {}
+    v.removeAttribute('src');
+    try { v.load(); } catch (e) {}
+    // Cache-buster: fuerza una carga nueva en cada intento. Chromium 38 puede
+    // reutilizar un error previo y no reintentar si la URL es idéntica.
+    var sep = videoUrl.indexOf('?') >= 0 ? '&' : '?';
+    v.src = videoUrl + sep + '_t=' + Date.now();
+    $('btn-playpause').textContent = t('pause');
+    $('player-time').textContent = '0:00 / 0:00';
+    $('pbar-fill').style.width = '0%';
+    try { v.play(); } catch (e) {}
+  }
   function playVideo(msgId) {
     var item = null;
     for (var i = 0; i < messages.length; i++) if (messages[i].id === Number(msgId)) { item = messages[i]; break; }
     playingType = item ? item.type : 'video';
     curMsgId = Number(msgId);
-    var url = BACKEND + '/api/video?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + enc(String(msgId));
+    videoUrl = BACKEND + '/api/video?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + enc(String(msgId));
     $('player-title').textContent = curChatTitle || '';
     $('player-msg').textContent = (playingType === 'video_file') ? t('converting_mkv') : t('loading_video');
     try { $('audio').pause(); } catch (e) {}
-    var v = $('video');
-    try { v.pause(); } catch (e) {}
     removeSubtitleTracks();
-    v.removeAttribute('src');
-    try { v.load(); } catch (e) {}
-    v.src = url;
-    $('btn-playpause').textContent = t('pause');
-    $('player-time').textContent = '0:00 / 0:00';
-    $('pbar-fill').style.width = '0%';
-    var key = progKey(curChat, msgId);
-    var resume = progress[key] || 0;
-    var didSeek = false;
-    function onLoaded() {
-      $('player-msg').textContent = '';
-      if (resume > 15 && v.duration && resume < v.duration * 0.95 && !didSeek) {
-        didSeek = true;
-        v.currentTime = resume;
-        updatePlayerTime();
-      }
-      attachSubtitles();
-    }
-    v.addEventListener('loadedmetadata', onLoaded);
-    v.addEventListener('playing', function () { $('player-msg').textContent = ''; });
-    v.addEventListener('error', function () {
-      var code = v.error ? v.error.code : -1;
-      var msg = t('could_not_play') + ' [' + code + ']';
-      if (code === 3 || code === 4) msg += ' — ' + t('err_codec');
-      else if (code === 2) msg += ' — ' + t('err_network');
-      $('player-msg').textContent = msg;
-      logToServer('video error code=' + code + ' msgId=' + curMsgId + ' chat=' + curChat);
-    });
-    try { v.play(); } catch (e) {}
+    pendingResume = progress[progKey(curChat, msgId)] || 0;
+    didSeek = false;
+    videoRetry = 0;
+    startVideoLoad();
     showPlayerControls();
     setView('player');
   }
@@ -755,6 +748,8 @@
   }
   function exitPlayer() {
     saveCurProgress();
+    if (videoLoadTimer) { clearTimeout(videoLoadTimer); videoLoadTimer = null; }
+    videoRetry = 0;
     var v = $('video');
     try { v.pause(); } catch (e) {}
     v.removeAttribute('src');
@@ -970,6 +965,34 @@
     });
     v.addEventListener('play', function () { if (playingType !== 'audio') $('btn-playpause').textContent = t('pause'); });
     v.addEventListener('pause', function () { if (playingType !== 'audio') $('btn-playpause').textContent = t('play'); });
+    v.addEventListener('loadedmetadata', function () {
+      if (playingType === 'audio') return;
+      $('player-msg').textContent = '';
+      if (pendingResume > 15 && v.duration && pendingResume < v.duration * 0.95 && !didSeek) {
+        didSeek = true;
+        v.currentTime = pendingResume;
+        updatePlayerTime();
+      }
+      attachSubtitles();
+    });
+    v.addEventListener('playing', function () { if (playingType !== 'audio') $('player-msg').textContent = ''; });
+    v.addEventListener('error', function () {
+      if (playingType === 'audio') return;
+      var code = v.error ? v.error.code : -1;
+      logToServer('video error code=' + code + ' retry=' + videoRetry + ' msgId=' + curMsgId + ' chat=' + curChat);
+      if (videoRetry < 2) {
+        // La descarga/conversión en el servidor puede tardar; reintenta un par de veces.
+        videoRetry++;
+        $('player-msg').textContent = t('loading_video') + ' (' + videoRetry + '/2)';
+        if (videoLoadTimer) clearTimeout(videoLoadTimer);
+        videoLoadTimer = setTimeout(startVideoLoad, 3000);
+        return;
+      }
+      var msg = t('could_not_play') + ' [' + code + ']';
+      if (code === 3 || code === 4) msg += ' — ' + t('err_codec');
+      else if (code === 2) msg += ' — ' + t('err_network');
+      $('player-msg').textContent = msg;
+    });
 
     var a = $('audio');
     a.addEventListener('timeupdate', function () {
