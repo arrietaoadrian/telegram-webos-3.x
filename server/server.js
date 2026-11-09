@@ -164,6 +164,88 @@ function serveImage(res, buf) {
 }
 
 // ===== Utilidades =====
+// Descarga un archivo de Telegram y borra restos parciales si falla (timeouts
+// de upload.GetFile dejan archivos corruptos que rompen pdftoppm después).
+async function safeDownloadMedia(msg, filePath) {
+    try {
+        await client.downloadMedia(msg, { outputFile: filePath });
+    } catch (e) {
+        try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (e2) {}
+        throw e;
+    }
+    let size = 0;
+    try { size = fs.statSync(filePath).size; } catch (e) {}
+    if (!size) {
+        try { fs.unlinkSync(filePath); } catch (e) {}
+        throw new Error('downloaded file is empty');
+    }
+}
+
+// Evita que dos peticiones descarguen el mismo archivo a la vez (corromperían
+// el PDF/audio/video al escribir sobre la misma ruta).
+const downloadLocks = new Map();
+function ensureDownloaded(msg, filePath) {
+    if (fs.existsSync(filePath)) return Promise.resolve();
+    let lock = downloadLocks.get(filePath);
+    if (!lock) {
+        lock = safeDownloadMedia(msg, filePath).then(function (v) {
+            downloadLocks.delete(filePath);
+            return v;
+        }, function (e) {
+            downloadLocks.delete(filePath);
+            throw e;
+        });
+        downloadLocks.set(filePath, lock);
+    }
+    return lock;
+}
+
+// Cola de pdftoppm: evita bloquear el event loop (las carátulas de una lista
+// pueden ser decenas) y da prioridad a las páginas completas del lector.
+const pdfJobs = [];
+let pdfRunning = 0;
+const PDF_MAX_JOBS = 2;
+function pumpPdfJobs() {
+    while (pdfRunning < PDF_MAX_JOBS && pdfJobs.length) {
+        const job = pdfJobs.shift();
+        pdfRunning++;
+        cp.execFile('pdftoppm', job.args, { timeout: 120000, maxBuffer: 1024 * 1024 }, function (err) {
+            pdfRunning--;
+            if (err) job.reject(err); else job.resolve();
+            pumpPdfJobs();
+        });
+    }
+}
+function runPdftoppm(args, priority) {
+    return new Promise(function (resolve, reject) {
+        const job = { args: args, resolve: resolve, reject: reject };
+        if (priority) pdfJobs.unshift(job); else pdfJobs.push(job);
+        pumpPdfJobs();
+    });
+}
+
+// Renderiza una página PDF a JPEG y devuelve la ruta generada (o null).
+async function renderPdfPage(pdfPath, prefix, page, dpi, isThumb) {
+    const priority = !isThumb;
+    const args = ['-f', String(page), '-l', String(page), '-jpeg', '-r', dpi];
+    if (isThumb) args.push('-jpegopt', 'quality=45,optimize=y');
+    args.push(pdfPath, prefix);
+    try {
+        await runPdftoppm(args, priority);
+    } catch (e) {
+        if (!isThumb || e.code === 'ENOENT') throw e;
+        // Poppler antiguo sin -jpegopt: reintenta sin esa opción.
+        await runPdftoppm(['-f', String(page), '-l', String(page), '-jpeg', '-r', dpi, pdfPath, prefix], priority);
+    }
+    // pdftoppm nombra la salida con el número de página (ej: prefix-2.jpg, prefix-02.jpg).
+    const marker = path.basename(prefix) + '-';
+    const dirFiles = fs.readdirSync(CACHE_DIR);
+    for (const f of dirFiles) {
+        if (f.indexOf(marker) === 0 && /\.jpe?g$/i.test(f)) return path.join(CACHE_DIR, f);
+    }
+    return null;
+}
+
 function sendJson(res, status, obj) {
     const body = JSON.stringify(obj);
     res.writeHead(status, {
@@ -655,7 +737,7 @@ const server = http.createServer(async function (req, res) {
             const base = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex');
             const filePath = path.join(CACHE_DIR, base + '.audio');
             if (!fs.existsSync(filePath)) {
-                await client.downloadMedia(msg, { outputFile: filePath });
+                await ensureDownloaded(msg, filePath);
             }
             fs.utimes(filePath, new Date(), new Date(), function () {});
             // Detecta el códec real y convierte a MP3 si el TV no lo soporta.
@@ -698,14 +780,35 @@ const server = http.createServer(async function (req, res) {
             const base = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex');
             const pdfPath = path.join(CACHE_DIR, base + '.pdf');
             if (!fs.existsSync(pdfPath)) {
-                await client.downloadMedia(msg, { outputFile: pdfPath });
+                try {
+                    await ensureDownloaded(msg, pdfPath);
+                } catch (e) {
+                    logError('pdfinfo', 'download failed: ' + e.message);
+                    sendJson(res, 500, { error: 'PDF download failed' });
+                    return;
+                }
+            }
+            function readPages() {
+                const out = cp.execFileSync('pdfinfo', [pdfPath], { encoding: 'utf8', timeout: 30000 });
+                const m = /Pages:\s+(\d+)/.exec(out);
+                return m ? (parseInt(m[1], 10) || 1) : 1;
             }
             let pages = 1;
             try {
-                const out = cp.execFileSync('pdfinfo', [pdfPath], { encoding: 'utf8' });
-                const m = /Pages:\s+(\d+)/.exec(out);
-                if (m) pages = parseInt(m[1], 10) || 1;
-            } catch (e) { logError('pdfinfo', 'pdfinfo failed: ' + e.message); pages = 1; }
+                pages = readPages();
+            } catch (e) {
+                logError('pdfinfo', 'pdfinfo failed: ' + e.message);
+                if (e.code !== 'ENOENT') {
+                    // PDF parcial/corrupto de una descarga anterior: bórralo y reintenta una vez.
+                    try { fs.unlinkSync(pdfPath); } catch (e2) {}
+                    try {
+                        await ensureDownloaded(msg, pdfPath);
+                        pages = readPages();
+                    } catch (e3) {
+                        logError('pdfinfo', 'retry failed: ' + e3.message);
+                    }
+                }
+            }
             sendJson(res, 200, { pages: pages });
             return;
         }
@@ -724,29 +827,41 @@ const server = http.createServer(async function (req, res) {
             const msg = msgs[0];
             const base = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex');
             const pdfPath = path.join(CACHE_DIR, base + '.pdf');
-            const imgPath = path.join(CACHE_DIR, base + '_p' + page + (isThumb ? thumbSuffix : '') + '.jpg');
+            let imgPath = path.join(CACHE_DIR, base + '_p' + page + (isThumb ? thumbSuffix : '') + '.jpg');
             if (!fs.existsSync(pdfPath)) {
-                await client.downloadMedia(msg, { outputFile: pdfPath });
+                try {
+                    await ensureDownloaded(msg, pdfPath);
+                } catch (e) {
+                    logError('pdf', 'download failed: ' + e.message);
+                    sendJson(res, 500, { error: 'PDF download failed' });
+                    return;
+                }
             }
             if (!fs.existsSync(imgPath)) {
-                const prefix = path.join(CACHE_DIR, base + '_p' + page + (isThumb ? thumbSuffix : ''));
-                const args = ['-f', String(page), '-l', String(page), '-jpeg', '-r', dpi];
-                if (isThumb) args.push('-jpegopt', 'quality=45,optimize=y');
-                args.push(pdfPath, prefix);
-                try {
-                    cp.execFileSync('pdftoppm', args, { stdio: 'ignore' });
-                } catch (e) {
-                    // Poppler antiguo sin -jpegopt: reintenta sin esa opción.
-                    cp.execFileSync('pdftoppm', ['-f', String(page), '-l', String(page), '-jpeg', '-r', dpi, pdfPath, prefix], { stdio: 'ignore' });
-                }
-                // pdftoppm nombra la salida con el número de página (ej: prefix-2.jpg, prefix-02.jpg).
-                const marker = path.basename(prefix) + '-';
+                // Prefijo único para evitar colisiones si dos peticiones piden la misma página a la vez.
+                const prefix = path.join(CACHE_DIR, base + '_p' + page + (isThumb ? thumbSuffix : '') + '_tmp' + Date.now() + Math.floor(Math.random() * 1000));
                 let found = null;
-                const dirFiles = fs.readdirSync(CACHE_DIR);
-                for (const f of dirFiles) {
-                    if (f.indexOf(marker) === 0 && /\.jpe?g$/i.test(f)) { found = path.join(CACHE_DIR, f); break; }
+                try {
+                    found = renderPdfPage(pdfPath, prefix, page, dpi, isThumb);
+                } catch (e) {
+                    logError('pdf', 'pdftoppm failed page=' + page + ': ' + e.message);
+                    if (e.code !== 'ENOENT') {
+                        // PDF parcial/corrupto de una descarga anterior: bórralo y reintenta una vez.
+                        try { fs.unlinkSync(pdfPath); } catch (e2) {}
+                        try {
+                            await ensureDownloaded(msg, pdfPath);
+                            found = renderPdfPage(pdfPath, prefix, page, dpi, isThumb);
+                        } catch (e3) {
+                            logError('pdf', 'retry failed page=' + page + ': ' + e3.message);
+                        }
+                    }
                 }
-                if (found) fs.renameSync(found, imgPath);
+                if (found) {
+                    try { fs.renameSync(found, imgPath); } catch (e) {
+                        logError('pdf', 'rename failed: ' + e.message);
+                        if (fs.existsSync(found)) imgPath = found;
+                    }
+                }
             }
             if (!fs.existsSync(imgPath)) { logError('pdf', 'pdftoppm no genero imagen para page=' + page); res.writeHead(500); res.end('pdf convert failed'); return; }
             serveImage(res, fs.readFileSync(imgPath));
@@ -771,7 +886,7 @@ const server = http.createServer(async function (req, res) {
                 if (vi.type === 'video_file') {
                     const mkvPath = path.join(CACHE_DIR, base + '.mkv');
                     if (!fs.existsSync(mkvPath)) {
-                        await client.downloadMedia(msg, { outputFile: mkvPath });
+                        await ensureDownloaded(msg, mkvPath);
                     }
                     try {
                         await remuxMkv(mkvPath, filePath);
@@ -782,7 +897,7 @@ const server = http.createServer(async function (req, res) {
                         return;
                     }
                 } else {
-                    await client.downloadMedia(msg, { outputFile: filePath });
+                    await ensureDownloaded(msg, filePath);
                 }
             }
             fs.utimes(filePath, new Date(), new Date(), function () {});

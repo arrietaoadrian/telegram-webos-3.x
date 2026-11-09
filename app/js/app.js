@@ -540,10 +540,15 @@
   function renderPhoto() {
     var p = photoList[photoIndex];
     if (!p) return;
-    $('photo-img').classList.remove('pdf-mode');
+    pdfMsgId = null;
+    var img = $('photo-img');
+    img.onload = null;
+    img.onerror = null;
+    img.classList.remove('pdf-mode');
+    $('btn-photo-back').style.display = '';
     $('photo-scroll').scrollTop = 0;
-    $('photo-img').src = BACKEND + '/api/photo?chat=' + enc(p.chatId) + '&className=' + enc(p.className) + '&msgId=' + p.id;
-    $('photo-img').style.transform = 'scale(' + photoZoom + ')';
+    img.src = BACKEND + '/api/photo?chat=' + enc(p.chatId) + '&className=' + enc(p.className) + '&msgId=' + p.id;
+    img.style.transform = 'scale(' + photoZoom + ')';
     $('photo-caption').textContent = (p.caption || '') + ' (' + (photoIndex + 1) + '/' + photoList.length + ')';
   }
   function zoomPhoto(delta) {
@@ -562,19 +567,65 @@
     pdfMsgId = Number(msgId);
     pdfPage = 1;
     pdfPages = 1;
+    var img = $('photo-img');
+    img.onload = null;
+    img.onerror = null;
+    img.removeAttribute('src');
+    img.classList.add('pdf-mode');
+    img.style.transform = '';
+    setView('photo');
+    $('photo-caption').textContent = t('pdf') + ' 1 / ...';
+    $('btn-photo-back').style.display = 'none';
     api('/api/pdfinfo?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + msgId, 'GET', null, function (err, data) {
       if (!err && data && data.pages) pdfPages = data.pages;
       renderPdf();
-      setView('photo');
     });
+  }
+  var pdfPreloads = [];
+  function pdfUrl(page) {
+    return BACKEND + '/api/pdf?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + pdfMsgId + '&page=' + page;
+  }
+  function preloadPdfPage(page) {
+    if (!pdfMsgId || page < 1 || page > pdfPages) return;
+    try {
+      var im = new Image();
+      im.src = pdfUrl(page);
+      pdfPreloads.push(im);
+      if (pdfPreloads.length > 4) pdfPreloads.shift();
+    } catch (e) {}
   }
   function renderPdf() {
     if (!pdfMsgId) return;
-    $('photo-img').classList.add('pdf-mode');
-    $('photo-scroll').scrollTop = 0;
-    $('photo-img').src = BACKEND + '/api/pdf?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + pdfMsgId + '&page=' + pdfPage;
-    $('photo-img').style.transform = 'scale(1)';
-    $('photo-caption').textContent = t('pdf') + ' ' + pdfPage + ' / ' + pdfPages;
+    var page = pdfPage;
+    $('btn-photo-back').style.display = 'none';
+    $('photo-caption').textContent = t('pdf') + ' ' + page + ' / ' + pdfPages + ' ...';
+    // Chromium 38 (webOS) no repinta de forma fiable un <img> ya cargado al
+    // cambiarle el src. Se crea una imagen nueva y se sustituye solo cuando
+    // terminó de cargar, así la página cambia siempre.
+    var ni = new Image();
+    ni.id = 'photo-img';
+    ni.className = 'pdf-mode';
+    ni.alt = '';
+    ni.onload = function () {
+      ni.onload = null;
+      ni.onerror = null;
+      if (page !== pdfPage || !pdfMsgId) return;
+      var cur = $('photo-img');
+      if (cur && cur.parentNode) cur.parentNode.replaceChild(ni, cur);
+      $('photo-scroll').scrollTop = 0;
+      setTimeout(function () { if (page === pdfPage && pdfMsgId) $('photo-scroll').scrollTop = 0; }, 100);
+      $('photo-caption').textContent = t('pdf') + ' ' + page + ' / ' + pdfPages;
+      preloadPdfPage(page + 1);
+      preloadPdfPage(page - 1);
+    };
+    ni.onerror = function () {
+      ni.onload = null;
+      ni.onerror = null;
+      if (page === pdfPage) {
+        $('photo-caption').textContent = t('pdf') + ' ' + page + ' / ' + pdfPages + ' [!]';
+      }
+    };
+    ni.src = pdfUrl(page);
   }
   function scrollPdf(delta) {
     var sc = $('photo-scroll');
@@ -875,7 +926,7 @@
       reRender();
     });
     $('btn-player-back').addEventListener('click', function () { saveCurProgress(); exitPlayer(); });
-    $('btn-photo-back').addEventListener('click', function () { setView('main'); focusFirst(); });
+    $('btn-photo-back').addEventListener('click', function () { pdfMsgId = null; setView('main'); focusFirst(); });
     $('btn-rewind').addEventListener('click', function () { seekBy(-10); });
     $('btn-forward').addEventListener('click', function () { seekBy(10); });
     $('btn-playpause').addEventListener('click', togglePlay);
