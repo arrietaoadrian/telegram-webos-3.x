@@ -716,20 +716,29 @@ const server = http.createServer(async function (req, res) {
             const msgId = Number(u.searchParams.get('msgId') || 0);
             const page = Number(u.searchParams.get('page') || 1);
             const isThumb = u.searchParams.get('thumb') === '1';
-            const dpi = isThumb ? '80' : '150';
+            const dpi = isThumb ? '40' : '150';
+            const thumbSuffix = '_t2';
             const entity = await getEntityById(chatId, className);
             const msgs = await client.getMessages(entity, { ids: [msgId] });
             if (!msgs || !msgs.length) { res.writeHead(404); res.end('no msg'); return; }
             const msg = msgs[0];
             const base = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex');
             const pdfPath = path.join(CACHE_DIR, base + '.pdf');
-            const imgPath = path.join(CACHE_DIR, base + '_p' + page + (isThumb ? '_t' : '') + '.jpg');
+            const imgPath = path.join(CACHE_DIR, base + '_p' + page + (isThumb ? thumbSuffix : '') + '.jpg');
             if (!fs.existsSync(pdfPath)) {
                 await client.downloadMedia(msg, { outputFile: pdfPath });
             }
             if (!fs.existsSync(imgPath)) {
-                const prefix = path.join(CACHE_DIR, base + '_p' + page + (isThumb ? '_t' : ''));
-                cp.execFileSync('pdftoppm', ['-f', String(page), '-l', String(page), '-jpeg', '-r', dpi, pdfPath, prefix], { stdio: 'ignore' });
+                const prefix = path.join(CACHE_DIR, base + '_p' + page + (isThumb ? thumbSuffix : ''));
+                const args = ['-f', String(page), '-l', String(page), '-jpeg', '-r', dpi];
+                if (isThumb) args.push('-jpegopt', 'quality=45,optimize=y');
+                args.push(pdfPath, prefix);
+                try {
+                    cp.execFileSync('pdftoppm', args, { stdio: 'ignore' });
+                } catch (e) {
+                    // Poppler antiguo sin -jpegopt: reintenta sin esa opción.
+                    cp.execFileSync('pdftoppm', ['-f', String(page), '-l', String(page), '-jpeg', '-r', dpi, pdfPath, prefix], { stdio: 'ignore' });
+                }
                 // pdftoppm nombra la salida con el número de página (ej: prefix-2.jpg, prefix-02.jpg).
                 const marker = path.basename(prefix) + '-';
                 let found = null;
