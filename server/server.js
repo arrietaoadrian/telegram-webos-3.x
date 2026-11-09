@@ -842,7 +842,7 @@ const server = http.createServer(async function (req, res) {
                 const prefix = path.join(CACHE_DIR, base + '_p' + page + (isThumb ? thumbSuffix : '') + '_tmp' + Date.now() + Math.floor(Math.random() * 1000));
                 let found = null;
                 try {
-                    found = renderPdfPage(pdfPath, prefix, page, dpi, isThumb);
+                    found = await renderPdfPage(pdfPath, prefix, page, dpi, isThumb);
                 } catch (e) {
                     logError('pdf', 'pdftoppm failed page=' + page + ': ' + e.message);
                     if (e.code !== 'ENOENT') {
@@ -850,7 +850,7 @@ const server = http.createServer(async function (req, res) {
                         try { fs.unlinkSync(pdfPath); } catch (e2) {}
                         try {
                             await ensureDownloaded(msg, pdfPath);
-                            found = renderPdfPage(pdfPath, prefix, page, dpi, isThumb);
+                            found = await renderPdfPage(pdfPath, prefix, page, dpi, isThumb);
                         } catch (e3) {
                             logError('pdf', 'retry failed page=' + page + ': ' + e3.message);
                         }

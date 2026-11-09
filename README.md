@@ -108,14 +108,14 @@ You have two options: download the prebuilt `.ipk` from
    cd app
    ares-package . -o bin --no-minify
    ```
-   The output is `bin/com.telegramtv.app_0.5.0_all.ipk`.
+   The output is `bin/com.telegramtv.app_0.5.1_all.ipk`.
 
 3. Install the `.ipk` on the TV. Any of these works:
    - **Homebrew Channel** (recommended on a rooted TV),
    - **Dev Manager Desktop** (graphical tool),
    - the CLI, after registering the TV once with `ares-setup-device`:
      ```bash
-     ares-install -d <tv-name> bin/com.telegramtv.app_0.5.0_all.ipk
+     ares-install -d <tv-name> bin/com.telegramtv.app_0.5.1_all.ipk
      ```
 
 ### 3. Connect and sign in
