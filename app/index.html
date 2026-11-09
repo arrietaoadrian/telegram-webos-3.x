@@ -12,18 +12,18 @@
     <div id="view-setup" class="view">
       <div class="box">
         <div class="logo">Telegram <span>TV</span></div>
-        <div class="sub">Conecta el TV con el servidor que corre en tu teléfono.</div>
+        <div class="sub">Connect the TV to the server running on your phone.</div>
         <input type="text" id="setup-url" placeholder="http://192.168.1.50:8080" class="focusable">
-        <div class="hint">Esta dirección aparece en Termux (celular) al ejecutar<br><b>node server.js</b>. Es la IP de tu teléfono en el Wi-Fi + el puerto 8080.<br>Ejemplo: <b>http://192.168.1.50:8080</b></div>
-        <button id="setup-btn" class="btn-primary focusable">Conectar</button>
+        <div class="hint">This address appears in Termux (phone) when you run<br><b>node server.js</b>. It's your phone's Wi-Fi IP + port 8080.<br>Example: <b>http://192.168.1.50:8080</b></div>
+        <button id="setup-btn" class="btn-primary focusable">Connect</button>
         <div id="setup-msg" class="msg"></div>
       </div>
     </div>
 
     <div id="view-login" class="view hidden">
       <div class="box">
-        <div class="logo">Iniciar sesión</div>
-        <div class="sub">Escanea este QR con Telegram:<br>Configuración → Dispositivos → Escanear QR</div>
+        <div class="logo">Sign in</div>
+        <div class="sub">Scan this QR with Telegram:<br>Settings → Devices → Scan QR</div>
         <div class="qr-wrap"><img id="qr-img" class="qr" src="" alt="QR"></div>
         <div id="login-msg" class="msg"></div>
       </div>
@@ -31,23 +31,23 @@
 
     <div id="view-pass" class="view hidden">
       <div class="box">
-        <div class="logo">Contraseña</div>
-        <div class="sub">Tu cuenta tiene verificación en dos pasos</div>
-        <input type="password" id="pass-input" placeholder="Contraseña de Telegram" class="focusable">
-        <button id="pass-btn" class="btn-primary focusable">Enviar</button>
+        <div class="logo">Password</div>
+        <div class="sub">Your account has two-step verification</div>
+        <input type="password" id="pass-input" placeholder="Telegram password" class="focusable">
+        <button id="pass-btn" class="btn-primary focusable">Submit</button>
         <div id="pass-msg" class="msg"></div>
       </div>
     </div>
 
     <div id="view-main" class="view hidden">
       <div class="topbar">
-        <div id="main-title" class="topbar-title">Canales</div>
+        <div id="main-title" class="topbar-title">Channels</div>
         <div class="spacer"></div>
-        <input type="text" id="search-input" class="search-input focusable hidden" placeholder="Buscar en este chat...">
-        <button id="btn-search" class="btn focusable hidden">Buscar</button>
-        <button id="btn-archive" class="btn focusable">Archivados</button>
-        <button id="btn-refresh" class="btn focusable">Recargar</button>
-        <button id="btn-logout" class="btn focusable">Salir</button>
+        <input type="text" id="search-input" class="search-input focusable hidden" placeholder="Search in this chat...">
+        <button id="btn-search" class="btn focusable hidden">Search</button>
+        <button id="btn-archive" class="btn focusable">Archived</button>
+        <button id="btn-refresh" class="btn focusable">Refresh</button>
+        <button id="btn-logout" class="btn focusable">Log out</button>
       </div>
       <div id="main-content" class="content"></div>
     </div>
@@ -55,7 +55,7 @@
     <div id="view-player" class="view hidden">
       <video id="video"></video>
       <div class="player-top">
-        <button id="btn-player-back" class="btn">Volver</button>
+        <button id="btn-player-back" class="btn">Back</button>
         <div id="player-title"></div>
       </div>
       <div class="player-controls">
@@ -64,7 +64,7 @@
           <div id="player-time" class="ptime">0:00 / 0:00</div>
           <div class="pbtns">
             <button id="btn-rewind" class="btn">-10s</button>
-            <button id="btn-playpause" class="btn">Pausa</button>
+            <button id="btn-playpause" class="btn">Pause</button>
             <button id="btn-forward" class="btn">+10s</button>
           </div>
         </div>
@@ -75,12 +75,12 @@
     <div id="view-photo" class="view hidden">
       <img id="photo-img" src="" alt="">
       <div class="player-top">
-        <button id="btn-photo-back" class="btn">Volver</button>
+        <button id="btn-photo-back" class="btn">Back</button>
         <div id="photo-caption"></div>
       </div>
     </div>
 
-    <div id="loading" class="hidden">Cargando...</div>
+    <div id="loading" class="hidden">Loading...</div>
   </div>
   <script src="js/app.js"></script>
 </body>

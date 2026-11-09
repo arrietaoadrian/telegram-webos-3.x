@@ -53,7 +53,7 @@
     return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear() + ' · ' + (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
   }
 
-  // ===== Progreso de reproducción (localStorage) =====
+  // ===== Playback progress (localStorage) =====
   function loadProgress() {
     try {
       var s = localStorage.getItem('tg_progress');
@@ -78,7 +78,7 @@
   }
 
   function setTopbar(opts) {
-    $('main-title').textContent = opts.title || 'Canales';
+    $('main-title').textContent = opts.title || 'Channels';
     $('btn-archive').className = 'btn focusable' + (opts.showArchive ? '' : ' hidden');
     if (opts.archiveLabel) $('btn-archive').textContent = opts.archiveLabel;
     $('search-input').value = '';
@@ -102,7 +102,7 @@
         else cb(new Error('HTTP ' + xhr.status + (data && data.error ? ' ' + data.error : '')), data);
       }
     };
-    xhr.onerror = function () { cb(new Error('Sin conexión con el servidor (' + BACKEND + ')'), null); };
+    xhr.onerror = function () { cb(new Error('No connection to the server (' + BACKEND + ')'), null); };
     try { xhr.send(body ? JSON.stringify(body) : null); } catch (e) { cb(e, null); }
   }
 
@@ -115,14 +115,14 @@
         else cb(new Error('HTTP ' + xhr.status), null);
       }
     };
-    xhr.onerror = function () { cb(new Error('Sin conexión'), null); };
+    xhr.onerror = function () { cb(new Error('No connection'), null); };
     xhr.send(null);
   }
 
   // ===== Setup =====
   function doSetup() {
     var u = $('setup-url').value.trim().replace(/\/+$/, '');
-    if (!u) { $('setup-msg').textContent = 'Ingresa la dirección del servidor.'; return; }
+    if (!u) { $('setup-msg').textContent = 'Enter the server address.'; return; }
     BACKEND = u;
     try { localStorage.setItem('tg_backend', BACKEND); } catch (e) {}
     $('setup-msg').textContent = '';
@@ -138,7 +138,7 @@
   function showLogin() {
     setView('login');
     stopPolling();
-    $('login-msg').textContent = 'Cargando QR...';
+    $('login-msg').textContent = 'Loading QR...';
     api('/api/login', 'POST', null, function (err) {
       if (err) { $('login-msg').textContent = err.message; return; }
       $('login-msg').textContent = '';
@@ -159,8 +159,8 @@
   }
   function doPassword() {
     var pw = $('pass-input').value;
-    if (!pw) { $('pass-msg').textContent = 'Ingresa tu contraseña.'; return; }
-    $('pass-msg').textContent = 'Verificando...';
+    if (!pw) { $('pass-msg').textContent = 'Enter your password.'; return; }
+    $('pass-msg').textContent = 'Verifying...';
     api('/api/password', 'POST', { password: pw }, function (err) {
       if (err) { $('pass-msg').textContent = err.message; return; }
       $('pass-msg').textContent = '';
@@ -169,19 +169,19 @@
     });
   }
 
-  // ===== Canales / Archivados =====
+  // ===== Channels / Archived =====
   function showChannels() {
     lastList = 'channels';
     curChat = null;
     setView('main');
-    setTopbar({ title: 'Canales', showArchive: true, archiveLabel: 'Archivados' });
+    setTopbar({ title: 'Channels', showArchive: true, archiveLabel: 'Archived' });
     loadDialogs(false);
   }
   function showArchived() {
     lastList = 'archived';
     curChat = null;
     setView('main');
-    setTopbar({ title: 'Archivados', showArchive: true, archiveLabel: 'Canales' });
+    setTopbar({ title: 'Archived', showArchive: true, archiveLabel: 'Channels' });
     loadDialogs(true);
   }
   function loadDialogs(archivedOnly) {
@@ -191,7 +191,7 @@
       if (err) { $('main-content').innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; return; }
       var list = archivedOnly ? (data.archived || []) : (data.dialogs || []);
       if (!list.length) {
-        $('main-content').innerHTML = '<div class="empty">' + (archivedOnly ? 'No hay chats archivados.' : 'No se encontraron canales.') + '</div>';
+        $('main-content').innerHTML = '<div class="empty">' + (archivedOnly ? 'No archived chats.' : 'No channels found.') + '</div>';
         return;
       }
       var html = '';
@@ -203,14 +203,14 @@
         html += '<div class="row focusable' + savedCls + '" tabindex="0" data-action="chat" data-chat="' + esc(c.id) + '" data-class="' + esc(c.className) + '" data-title="' + esc(c.title || '') + '">'
           + '<div class="avatar"><span class="letter">' + esc(initial) + '</span><img src="' + esc(avatarSrc) + '" onerror="this.remove()" alt=""></div>'
           + '<div><div class="row-title">' + esc(c.title || c.username || c.id) + '</div>'
-          + '<div class="row-sub">' + (c.saved ? 'Tus mensajes guardados' : (c.username ? '@' + esc(c.username) : 'Canal')) + '</div></div></div>';
+          + '<div class="row-sub">' + (c.saved ? 'Your saved messages' : (c.username ? '@' + esc(c.username) : 'Channel')) + '</div></div></div>';
       }
       $('main-content').innerHTML = html;
       focusFirst();
     });
   }
 
-  // ===== Chat (mensajes) =====
+  // ===== Chat (messages) =====
   function openChat(chat, className, title) {
     curChat = chat;
     curClassName = className;
@@ -227,10 +227,10 @@
   function renderGrid(list, showBack, showLoadMore, query) {
     var html = '';
     if (showBack) {
-      html += '<div class="row focusable" tabindex="0" data-action="back-list"><div class="avatar" style="background:#444"><span class="letter">&#8592;</span></div><div><div class="row-title">' + (query ? 'Volver a todos' : 'Volver a canales') + '</div></div></div>';
+      html += '<div class="row focusable" tabindex="0" data-action="back-list"><div class="avatar" style="background:#444"><span class="letter">&#8592;</span></div><div><div class="row-title">' + (query ? 'Back to all' : 'Back to channels') + '</div></div></div>';
     }
     if (!list.length) {
-      html += '<div class="empty">' + (query ? 'Sin resultados para "' + esc(query) + '".' : 'No hay medios en este chat.') + '</div>';
+      html += '<div class="empty">' + (query ? 'No results for "' + esc(query) + '".' : 'No media in this chat.') + '</div>';
     } else {
       html += '<div class="grid">';
       for (var i = 0; i < list.length; i++) {
@@ -247,13 +247,13 @@
         var dateStr = fmtDate(v.date);
         if (v.type === 'photo') {
           html += '<div class="vcard focusable" tabindex="0" data-action="photo" data-msg="' + v.id + '">'
-            + '<div class="vthumb"><img src="' + esc(thumb) + '" alt=""><span class="tag">Foto</span></div>'
-            + '<div class="vtitle">' + (cap || ('Foto ' + (i + 1))) + '</div>'
+            + '<div class="vthumb"><img src="' + esc(thumb) + '" alt=""><span class="tag">Photo</span></div>'
+            + '<div class="vtitle">' + (cap || ('Photo ' + (i + 1))) + '</div>'
             + chatLabel + '<div class="vmeta">' + dateStr + '</div></div>';
         } else if (v.type === 'audio') {
           html += '<div class="vcard focusable" tabindex="0" data-action="audio" data-msg="' + v.id + '">'
             + '<div class="vthumb"><span class="vplay">&#9835;</span><span class="tag">' + fmtDur(v.duration) + '</span></div>'
-            + '<div class="vtitle">' + (cap || ('Canción ' + (i + 1))) + '</div>'
+            + '<div class="vtitle">' + (cap || ('Song ' + (i + 1))) + '</div>'
             + chatLabel + '<div class="vmeta">' + dateStr + ' · ' + fmtSize(v.size) + '</div></div>';
         } else {
           var isMkv = (v.type === 'video_file');
@@ -266,7 +266,7 @@
       }
       html += '</div>';
       if (showLoadMore) {
-        html += '<div class="row focusable" tabindex="0" data-action="more"><div class="avatar" style="background:#444"><span class="letter">+</span></div><div><div class="row-title">Cargar más</div></div></div>';
+        html += '<div class="row focusable" tabindex="0" data-action="more"><div class="avatar" style="background:#444"><span class="letter">+</span></div><div><div class="row-title">Load more</div></div></div>';
       }
     }
     $('main-content').innerHTML = html;
@@ -311,7 +311,7 @@
     });
   }
 
-  // ===== Búsqueda global =====
+  // ===== Global search =====
   function doGlobalSearch(q) {
     if (!q) { if (lastList === 'archived') loadDialogs(true); else loadDialogs(false); return; }
     showLoading(true);
@@ -329,7 +329,7 @@
     else doGlobalSearch(q);
   }
 
-  // ===== Fotos =====
+  // ===== Photos =====
   function openPhoto(msgId) {
     photoList = [];
     for (var i = 0; i < messages.length; i++) {
@@ -362,7 +362,7 @@
     renderPhoto();
   }
 
-  // ===== Reproductor =====
+  // ===== Player =====
   function playVideo(msgId) {
     var item = null;
     for (var i = 0; i < messages.length; i++) if (messages[i].id === Number(msgId)) { item = messages[i]; break; }
@@ -370,14 +370,14 @@
     curMsgId = Number(msgId);
     var url = BACKEND + '/api/video?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + enc(String(msgId));
     $('player-title').textContent = curChatTitle || '';
-    $('player-msg').textContent = (playingType === 'video_file') ? 'Convirtiendo MKV (puede tardar)...' : 'Cargando video...';
+    $('player-msg').textContent = (playingType === 'video_file') ? 'Converting MKV (may take a while)...' : 'Loading video...';
     var v = $('video');
     try { v.pause(); } catch (e) {}
     removeSubtitleTracks();
     v.removeAttribute('src');
     try { v.load(); } catch (e) {}
     v.src = url;
-    $('btn-playpause').textContent = 'Pausa';
+    $('btn-playpause').textContent = 'Pause';
     $('player-time').textContent = '0:00 / 0:00';
     $('pbar-fill').style.width = '0%';
     var key = progKey(curChat, msgId);
@@ -394,7 +394,7 @@
     }
     v.addEventListener('loadedmetadata', onLoaded);
     v.addEventListener('playing', function () { $('player-msg').textContent = ''; });
-    v.addEventListener('error', function () { $('player-msg').textContent = 'No se pudo reproducir. Si es MKV, verifica tener ffmpeg y que sea H.264/AAC.'; });
+    v.addEventListener('error', function () { $('player-msg').textContent = 'Could not play. If it is MKV, make sure ffmpeg is installed and it is H.264/AAC.'; });
     try { v.play(); } catch (e) {}
     setView('player');
   }
@@ -420,7 +420,7 @@
         var url = URL.createObjectURL(blob);
         var track = document.createElement('track');
         track.kind = 'subtitles';
-        track.label = 'Español';
+        track.label = 'Subtitles';
         track.srclang = 'es';
         track.src = url;
         track.default = true;
@@ -436,7 +436,7 @@
     curMsgId = Number(msgId);
     var url = BACKEND + '/api/audio?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + enc(String(msgId));
     $('player-title').textContent = curChatTitle || '';
-    $('player-msg').textContent = 'Cargando música...';
+    $('player-msg').textContent = 'Loading music...';
     var v = $('video');
     try { v.pause(); } catch (e) {}
     removeSubtitleTracks();
@@ -444,7 +444,7 @@
     try { v.load(); } catch (e) {}
     v.src = url;
     v.addEventListener('playing', function () { $('player-msg').textContent = ''; });
-    $('btn-playpause').textContent = 'Pausa';
+    $('btn-playpause').textContent = 'Pause';
     $('player-time').textContent = '0:00 / 0:00';
     $('pbar-fill').style.width = '0%';
     try { v.play(); } catch (e) {}
@@ -475,7 +475,7 @@
   }
   function togglePlay() { var v = $('video'); if (v.paused) v.play(); else v.pause(); }
 
-  // ===== Acciones =====
+  // ===== Actions =====
   function onAction(action, el) {
     if (action === 'chat') openChat(el.getAttribute('data-chat'), el.getAttribute('data-class'), el.getAttribute('data-title'));
     else if (action === 'play') playVideo(el.getAttribute('data-msg'));
@@ -485,7 +485,7 @@
     else if (action === 'back-list') { if (lastList === 'archived') showArchived(); else showChannels(); }
   }
 
-  // ===== Navegación =====
+  // ===== Navigation =====
   function isVisible(el) {
     var n = el;
     while (n && n !== document) {
@@ -572,7 +572,7 @@
   window.onerror = function (msg, src, line) {
     try {
       var el = $('setup-msg') || $('login-msg') || $('player-msg');
-      if (el) el.textContent = 'Error: ' + msg + ' (línea ' + line + ')';
+      if (el) el.textContent = 'Error: ' + msg + ' (line ' + line + ')';
     } catch (e) {}
   };
 
@@ -608,8 +608,8 @@
         progress[progKey(curChat, curMsgId)] = Math.floor(v.currentTime);
       }
     });
-    v.addEventListener('play', function () { $('btn-playpause').textContent = 'Pausa'; });
-    v.addEventListener('pause', function () { $('btn-playpause').textContent = 'Reproducir'; });
+    v.addEventListener('play', function () { $('btn-playpause').textContent = 'Pause'; });
+    v.addEventListener('pause', function () { $('btn-playpause').textContent = 'Play'; });
 
     $('main-content').addEventListener('click', function (e) {
       var el = findUp(e.target, 'data-action');

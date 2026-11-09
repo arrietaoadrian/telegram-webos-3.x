@@ -1,11 +1,11 @@
 'use strict';
 
 /*
- * Telegram TV backend — corre en Termux (Android) con Node.js.
- * Habla con Telegram (MTProto), genera el login por QR, lista tus canales
- * y sirve los videos por HTTP para que la app del TV los reproduzca.
+ * Telegram TV backend — runs on Termux (Android) or any modern Node.js machine.
+ * Talks to Telegram (MTProto), produces the QR login, lists your chats and
+ * serves the media over HTTP for the TV app to play.
  *
- * Configuración: edita config.json con tu apiId y apiHash (de my.telegram.org).
+ * Configuration: edit config.json with your apiId and apiHash (from my.telegram.org).
  */
 
 const fs = require('fs');
@@ -26,12 +26,12 @@ let config;
 try {
     config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 } catch (e) {
-    console.error('ERROR: no se pudo leer config.json');
+    console.error('ERROR: could not read config.json');
     process.exit(1);
 }
 
 if (!config.apiId || !config.apiHash || config.apiHash === 'PON_AQUI_TU_API_HASH') {
-    console.error('ERROR: edita config.json con tu apiId y apiHash reales.');
+    console.error('ERROR: edit config.json with your real apiId and apiHash.');
     process.exit(1);
 }
 
@@ -41,8 +41,8 @@ const API_HASH = String(config.apiHash);
 
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-// Los videos son temporales: se borran automáticamente.
-const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutos sin uso
+// Media is temporary: deleted automatically.
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes without use
 
 function cleanupCache() {
     fs.readdir(CACHE_DIR, function (err, files) {
@@ -60,7 +60,7 @@ function cleanupCache() {
     });
 }
 
-// ===== Sesión persistente =====
+// ===== Persistent session =====
 let sessionString = fs.existsSync(SESSION_FILE) ? fs.readFileSync(SESSION_FILE, 'utf8').trim() : '';
 const stringSession = new StringSession(sessionString);
 const client = new TelegramClient(stringSession, API_ID, API_HASH, { connectionRetries: 5 });
@@ -69,7 +69,7 @@ function saveSession() {
     try { fs.writeFileSync(SESSION_FILE, stringSession.save()); } catch (e) {}
 }
 
-// ===== Estado de login =====
+// ===== Login state =====
 let loggedIn = false;
 let loginInProgress = false;
 let qrToken = null;          // Buffer
@@ -129,7 +129,7 @@ async function ensureConnected() {
     return auth;
 }
 
-// Cachés en memoria para avatares y miniaturas (no se recargan en cada render).
+// In-memory caches for avatars and thumbnails (so they are not re-downloaded on every render).
 const avatarCache = new Map();
 const thumbCache = new Map();
 const MAX_CACHE = 120;
@@ -156,7 +156,7 @@ function serveImage(res, buf) {
     res.end(buf);
 }
 
-// ===== Utilidades =====
+// ===== Utilities =====
 function sendJson(res, status, obj) {
     const body = JSON.stringify(obj);
     res.writeHead(status, {
@@ -179,7 +179,7 @@ function sendPng(res, buf) {
     res.end(buf);
 }
 
-// Servir archivo con soporte de rango (para streaming/seeking)
+// Serve a file with range support (for streaming/seeking)
 function serveFileWithRange(res, filePath, mimeType, req) {
     fs.stat(filePath, function (err, stat) {
         if (err) { res.writeHead(404); res.end('not found'); return; }
@@ -257,7 +257,7 @@ function classifyMedia(m) {
     return null;
 }
 
-// Remuxea MKV -> MP4 (solo cambia el contenedor, sin recodificar). Requiere ffmpeg.
+// Remux MKV -> MP4 (container-only, no re-encode). Requires ffmpeg.
 function remuxMkv(inputPath, outputPath) {
     return new Promise((resolve, reject) => {
         cp.execFile('ffmpeg', ['-y', '-i', inputPath, '-c', 'copy', '-movflags', '+faststart', outputPath],
@@ -267,7 +267,7 @@ function remuxMkv(inputPath, outputPath) {
     });
 }
 
-// Convierte SRT -> WebVTT para los subtítulos del reproductor.
+// Convert SRT -> WebVTT for the player's subtitles.
 function srtToVtt(srt) {
     if (/^\s*WEBVTT/i.test(srt)) return srt;
     let vtt = 'WEBVTT\n\n';
@@ -275,7 +275,7 @@ function srtToVtt(srt) {
     return vtt;
 }
 
-// Elige una miniatura mediana ('m', ~800px) para que se vea nítida en la rejilla.
+// Pick a medium thumbnail ('m', ~800px) so it looks sharp in the grid.
 function pickThumb(m) {
     let sizes = [];
     if (m && m.media instanceof Api.MessageMediaPhoto && m.media.photo) {
@@ -307,10 +307,10 @@ async function getEntityById(id, className) {
     if (className === 'User') {
         return await client.getEntity(new Api.PeerUser({ userId: nid }));
     }
-    throw new Error('tipo desconocido: ' + className);
+    throw new Error('unknown type: ' + className);
 }
 
-// ===== Servidor HTTP =====
+// ===== HTTP server =====
 const server = http.createServer(async function (req, res) {
     const u = new URL(req.url, 'http://localhost');
     const p = u.pathname;
@@ -378,7 +378,7 @@ const server = http.createServer(async function (req, res) {
             return;
         }
 
-        // ===== Rutas que requieren sesión =====
+        // ===== Routes that require a session =====
         if (!loggedIn) {
             try { await ensureConnected(); } catch (e) {}
         }
@@ -606,7 +606,7 @@ const server = http.createServer(async function (req, res) {
                         try { fs.unlinkSync(mkvPath); } catch (e) {}
                     } catch (e) {
                         try { fs.unlinkSync(mkvPath); } catch (e2) {}
-                        sendJson(res, 500, { error: 'No se pudo convertir el MKV. Instala ffmpeg en el teléfono (pkg install ffmpeg) y verifica que el video sea H.264/AAC.' });
+                        sendJson(res, 500, { error: 'Could not convert the MKV. Install ffmpeg on the phone (pkg install ffmpeg) and make sure the video is H.264/AAC.' });
                         return;
                     }
                 } else {
@@ -625,15 +625,15 @@ const server = http.createServer(async function (req, res) {
 });
 
 server.listen(PORT, '0.0.0.0', function () {
-    console.log('Telegram TV backend escuchando en http://0.0.0.0:' + PORT);
-    console.log('En el TV usa: http://IP_DEL_TELEFONO:' + PORT);
+    console.log('Telegram TV backend listening on http://0.0.0.0:' + PORT);
+    console.log('On the TV use: http://PHONE_IP:' + PORT);
 });
 
-// Limpieza de videos temporales: al arrancar y cada 10 minutos.
+// Clean up temporary media: at startup and every 10 minutes.
 cleanupCache();
 setInterval(cleanupCache, 10 * 60 * 1000);
 
-// Al arrancar, intenta validar la sesión guardada
+// On startup, try to validate the saved session
 (async function () {
     try {
         await client.connect();
@@ -641,11 +641,11 @@ setInterval(cleanupCache, 10 * 60 * 1000);
         loggedIn = auth;
         if (auth) {
             try { meInfo = await client.getMe(); } catch (e) {}
-            console.log('Sesión existente válida. Usuario:', meInfo ? meInfo.username : '?');
+            console.log('Valid existing session. User:', meInfo ? meInfo.username : '?');
         } else {
-            console.log('Sin sesión. La app mostrará el QR para iniciar sesión.');
+            console.log('No session. The app will show the QR to sign in.');
         }
     } catch (e) {
-        console.log('Aviso al arrancar:', e.message);
+        console.log('Startup notice:', e.message);
     }
 })();

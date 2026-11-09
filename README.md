@@ -1,12 +1,10 @@
 # Telegram TV (webOS)
 
-A video client for your **Telegram channels and groups**, for **old LG webOS TVs** (webOS 3.x, e.g. the 2017
+A video client for your **Telegram channels and groups**, for **LG webOS TVs** (webOS 3.x and newer, e.g. the 2017
 `32LJ550B` and similar).
 
 Sign in by scanning a QR code with your phone, browse the channels that contain videos, and play them with the
 remote. It streams while it downloads, so nothing is stored permanently — neither on the TV nor on the server.
-
-The app interface is in Spanish.
 
 > **Not affiliated with Telegram.** Personal project. Use Telegram under its own terms.
 
@@ -29,8 +27,8 @@ This project splits the work in two:
 
 - `server/` — a small Node.js server (run on any modern Node machine; Termux on Android is recommended). It talks to
   Telegram, produces the QR login, lists your chats and serves the videos over HTTP.
-- `app/` — a webOS app written in **ES5 only** (no frameworks), so it runs on Chromium 38. It shows the QR, lets you
-  browse with the remote and plays the videos with the native `<video>` element.
+- `app/` — a webOS app written in **ES5 only** (no frameworks), so it runs on Chromium 38 (webOS 3.x) — and, being
+  plain ES5, it also runs on every newer webOS version.
 
 ## Features
 
@@ -59,7 +57,8 @@ Prebuilt `.ipk` packages are attached to every
 
 1. A Telegram `api_id` and `api_hash` from <https://my.telegram.org> → API development tools.
 2. A machine to run `server/` with Node.js ≥ 16 (an Android phone with Termux, a PC, or a server).
-3. A rooted/dev-mode LG webOS 3.x TV, and a way to sideload an `.ipk` (e.g. Homebrew Channel, or `ares-install`).
+3. A rooted/dev-mode LG webOS TV (3.x or newer), and a way to sideload an `.ipk` (e.g. Homebrew Channel, or
+   `ares-install`).
 
 ## Setup
 

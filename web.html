@@ -39,11 +39,11 @@
 <body>
 <header>
   <h1>Telegram TV</h1>
-  <input id="url" placeholder="http://192.168.40.44:8080" title="Dirección del servidor">
-  <button onclick="connect()">Conectar</button>
-  <input id="q" placeholder="Buscar...">
-  <button onclick="doSearch()">Buscar</button>
-  <button class="ghost" onclick="loadChannels()">Canales</button>
+  <input id="url" placeholder="http://192.168.40.44:8080" title="Server address">
+  <button onclick="connect()">Connect</button>
+  <input id="q" placeholder="Search...">
+  <button onclick="doSearch()">Search</button>
+  <button class="ghost" onclick="loadChannels()">Channels</button>
   <span id="status"></span>
 </header>
 <div class="hint" id="hint"></div>
@@ -81,17 +81,17 @@ async function loadChannels() {
   curChat = null;
   document.getElementById('hint').textContent = '';
   const c = document.getElementById('content');
-  c.innerHTML = '<div class="empty">Cargando...</div>';
+  c.innerHTML = '<div class="empty">Loading...</div>';
   try {
     const data = await api('/api/dialogs');
     const list = data.dialogs || [];
-    let html = '<div class="back" onclick="loadArchived()">📁 Archivados (' + (data.archived ? data.archived.length : 0) + ')</div>';
-    if (!list.length) html += '<div class="empty">No hay canales.</div>';
+    let html = '<div class="back" onclick="loadArchived()">📁 Archived (' + (data.archived ? data.archived.length : 0) + ')</div>';
+    if (!list.length) html += '<div class="empty">No channels.</div>';
     html += '<div class="grid">';
     for (const d of list) {
       html += `<div class="chat" onclick="openChat('${d.id}','${d.className}','${escapeHtml(d.title)}')">
         <img src="${BACKEND}/api/avatar?chat=${d.id}&className=${d.className}" onerror="this.style.visibility='hidden'">
-        <div><div class="n">${escapeHtml(d.title || d.username || d.id)}</div><div class="s">${d.saved ? 'Mensajes guardados' : (d.username ? '@' + d.username : 'Canal')}</div></div>
+        <div><div class="n">${escapeHtml(d.title || d.username || d.id)}</div><div class="s">${d.saved ? 'Saved messages' : (d.username ? '@' + d.username : 'Channel')}</div></div>
       </div>`;
     }
     html += '</div>';
@@ -103,12 +103,12 @@ async function loadArchived() {
   curChat = null;
   document.getElementById('hint').textContent = '';
   const c = document.getElementById('content');
-  c.innerHTML = '<div class="empty">Cargando...</div>';
+  c.innerHTML = '<div class="empty">Loading...</div>';
   try {
     const data = await api('/api/dialogs');
     const list = data.archived || [];
-    let html = '<div class="back" onclick="loadChannels()">← Volver a canales</div>';
-    if (!list.length) html += '<div class="empty">No hay archivados.</div>';
+    let html = '<div class="back" onclick="loadChannels()">← Back to channels</div>';
+    if (!list.length) html += '<div class="empty">No archived chats.</div>';
     html += '<div class="grid">';
     for (const d of list) {
       html += `<div class="chat" onclick="openChat('${d.id}','${d.className}','${escapeHtml(d.title)}')">
@@ -125,7 +125,7 @@ async function openChat(id, cls, title) {
   curChat = id; curClass = cls; curTitle = title;
   document.getElementById('hint').textContent = '';
   const c = document.getElementById('content');
-  c.innerHTML = '<div class="empty">Cargando...</div>';
+  c.innerHTML = '<div class="empty">Loading...</div>';
   try {
     const data = await api('/api/messages?chat=' + id + '&className=' + cls);
     media = data.messages || [];
@@ -135,17 +135,17 @@ async function openChat(id, cls, title) {
 
 function renderMedia(title) {
   const c = document.getElementById('content');
-  let html = `<div class="back" onclick="loadChannels()">← Canales</div><h2 style="margin:0 0 12px;font-size:18px;">${escapeHtml(title || '')}</h2>`;
-  if (!media.length) html += '<div class="empty">No hay medios.</div>';
+  let html = `<div class="back" onclick="loadChannels()">← Channels</div><h2 style="margin:0 0 12px;font-size:18px;">${escapeHtml(title || '')}</h2>`;
+  if (!media.length) html += '<div class="empty">No media.</div>';
   html += '<div class="grid">';
   for (const v of media) {
     const thumb = `${BACKEND}/api/thumb?chat=${curChat}&className=${curClass}&msgId=${v.id}`;
     const cap = (v.caption || '').replace(/\s+/g, ' ').slice(0, 80);
     const date = fmtDate(v.date);
     if (v.type === 'photo') {
-      html += `<div class="card" onclick="showPhoto('${v.id}')"><img src="${thumb}" loading="lazy"><div class="t">${escapeHtml(cap || 'Foto')}</div><div class="m">${date}</div></div>`;
+      html += `<div class="card" onclick="showPhoto('${v.id}')"><img src="${thumb}" loading="lazy"><div class="t">${escapeHtml(cap || 'Photo')}</div><div class="m">${date}</div></div>`;
     } else if (v.type === 'audio') {
-      html += `<div class="card" onclick="play('${v.id}','audio')"><div style="height:220px;background:#1b232b;display:flex;align-items:center;justify-content:center;font-size:40px;">♪</div><div class="t">${escapeHtml(cap || 'Canción')}</div><div class="m">${date}</div></div>`;
+      html += `<div class="card" onclick="play('${v.id}','audio')"><div style="height:220px;background:#1b232b;display:flex;align-items:center;justify-content:center;font-size:40px;">♪</div><div class="t">${escapeHtml(cap || 'Song')}</div><div class="m">${date}</div></div>`;
     } else {
       const isMkv = v.type === 'video_file';
       html += `<div class="card" onclick="play('${v.id}','video')"><img src="${thumb}" loading="lazy" onerror="this.style.opacity='.2'"><div class="t">${escapeHtml(cap || 'Video')}</div><div class="m">${isMkv ? 'MKV · ' : ''}${fmtDur(v.duration)} · ${date}</div></div>`;
@@ -180,18 +180,18 @@ async function doSearch() {
   const q = document.getElementById('q').value.trim();
   if (!q) return;
   const c = document.getElementById('content');
-  c.innerHTML = '<div class="empty">Buscando...</div>';
+  c.innerHTML = '<div class="empty">Searching...</div>';
   try {
     if (curChat) {
       const data = await api('/api/search?chat=' + curChat + '&className=' + curClass + '&q=' + encodeURIComponent(q));
       media = data.messages || [];
-      renderMedia('Resultados: ' + q);
+      renderMedia('Results: ' + q);
     } else {
       const data = await api('/api/searchGlobal?q=' + encodeURIComponent(q));
       media = (data.messages || []).map(m => { m.chatTitle = m.chatTitle; return m; });
       const c2 = document.getElementById('content');
-      let html = `<div class="back" onclick="loadChannels()">← Canales</div><h2 style="margin:0 0 12px;font-size:18px;">Resultados: ${escapeHtml(q)}</h2>`;
-      if (!media.length) html += '<div class="empty">Sin resultados.</div>';
+      let html = `<div class="back" onclick="loadChannels()">← Channels</div><h2 style="margin:0 0 12px;font-size:18px;">Results: ${escapeHtml(q)}</h2>`;
+      if (!media.length) html += '<div class="empty">No results.</div>';
       html += '<div class="grid">';
       for (const v of media) {
         const thumb = `${BACKEND}/api/thumb?chat=${v.chatId}&className=${v.className}&msgId=${v.id}`;
@@ -219,23 +219,23 @@ function fmtDate(ts) {
   if (!ts) return '';
   const d = new Date(ts*1000);
   if (isNaN(d)) return '';
-  const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear() + ' · ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
 }
 function escapeHtml(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Verificar conexión al cargar
+// Check connection on load
 (async () => {
   try {
     const st = await api('/api/status');
-    document.getElementById('status').textContent = st.loggedIn ? '✓ Conectado' : 'Sesión no iniciada';
+    document.getElementById('status').textContent = st.loggedIn ? '✓ Connected' : 'Session not started';
     if (st.loggedIn) loadChannels();
-    else document.getElementById('content').innerHTML = '<div class="empty">El servidor no tiene sesión iniciada. Ábrelo en Termux y escanea el QR con la app del TV.</div>';
+    else document.getElementById('content').innerHTML = '<div class="empty">The server has no session. Open it in Termux and scan the QR with the TV app.</div>';
   } catch (e) {
-    document.getElementById('status').textContent = 'Sin conexión';
-    document.getElementById('content').innerHTML = '<div class="empty">No se pudo conectar a ' + BACKEND + '. Verifica la dirección y que el servidor esté corriendo.</div>';
+    document.getElementById('status').textContent = 'No connection';
+    document.getElementById('content').innerHTML = '<div class="empty">Could not connect to ' + BACKEND + '. Check the address and make sure the server is running.</div>';
   }
 })();
 </script>
