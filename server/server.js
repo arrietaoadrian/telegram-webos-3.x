@@ -15,6 +15,7 @@ const crypto = require('crypto');
 const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const QRCode = require('qrcode');
+const cp = require('child_process');
 
 const BASE = __dirname;
 const configPath = path.join(BASE, 'config.json');
@@ -128,6 +129,33 @@ async function ensureConnected() {
     return auth;
 }
 
+// Cachés en memoria para avatares y miniaturas (no se recargan en cada render).
+const avatarCache = new Map();
+const thumbCache = new Map();
+const MAX_CACHE = 120;
+
+function cachePut(map, key, buf) {
+    map.set(key, buf);
+    if (map.size > MAX_CACHE) {
+        const first = map.keys().next().value;
+        map.delete(first);
+    }
+}
+
+function serveImage(res, buf) {
+    if (!buf || !buf.length) { res.writeHead(404); res.end('no image'); return; }
+    let ct = 'image/jpeg';
+    if (buf[0] === 0x89 && buf[1] === 0x50) ct = 'image/png';
+    else if (buf[0] === 0x47 && buf[1] === 0x49) ct = 'image/gif';
+    res.writeHead(200, {
+        'Content-Type': ct,
+        'Cache-Control': 'public, max-age=86400',
+        'Access-Control-Allow-Origin': '*',
+        'Content-Length': buf.length
+    });
+    res.end(buf);
+}
+
 // ===== Utilidades =====
 function sendJson(res, status, obj) {
     const body = JSON.stringify(obj);
@@ -190,25 +218,82 @@ function serveFileWithRange(res, filePath, mimeType, req) {
     });
 }
 
-function videoInfo(m) {
-    const doc = m && m.media && m.media.document;
-    if (!doc) return null;
-    let v = null;
-    const attrs = doc.attributes || [];
-    for (let i = 0; i < attrs.length; i++) {
-        if (attrs[i] instanceof Api.DocumentAttributeVideo) { v = attrs[i]; break; }
+function classifyMedia(m) {
+    if (m && m.media instanceof Api.MessageMediaPhoto && m.media.photo) {
+        return { type: 'photo', id: m.id, date: m.date, caption: m.message || '' };
     }
-    if (!v) return null;
-    return {
-        id: m.id,
-        date: m.date,
-        caption: m.message || '',
-        duration: v.duration || 0,
-        width: v.w || 0,
-        height: v.h || 0,
-        size: doc.size || 0,
-        mimeType: doc.mimeType || 'video/mp4'
-    };
+    if (m && m.media instanceof Api.MessageMediaDocument && m.media.document) {
+        const doc = m.media.document;
+        let fileName = '';
+        for (const a of (doc.attributes || [])) {
+            if (a.fileName) fileName = a.fileName;
+        }
+        for (const a of (doc.attributes || [])) {
+            if (a instanceof Api.DocumentAttributeVideo) {
+                const isMkv = /matroska/.test(doc.mimeType || '') || /\.mkv$/i.test(fileName);
+                return {
+                    type: isMkv ? 'video_file' : 'video',
+                    id: m.id, date: m.date, caption: m.message || '',
+                    duration: a.duration || 0, width: a.w || 0, height: a.h || 0,
+                    size: doc.size || 0, mimeType: doc.mimeType || 'video/mp4', fileName: fileName
+                };
+            }
+            if (a instanceof Api.DocumentAttributeAudio) {
+                return {
+                    type: 'audio', id: m.id, date: m.date, caption: m.message || '',
+                    duration: a.duration || 0, size: doc.size || 0,
+                    mimeType: doc.mimeType || 'audio/mpeg', fileName: fileName
+                };
+            }
+        }
+        const ext = (fileName.split('.').pop() || '').toLowerCase();
+        if (['mkv', 'avi', 'webm', 'm4v'].indexOf(ext) !== -1) {
+            return { type: 'video_file', id: m.id, date: m.date, caption: m.message || '', size: doc.size || 0, mimeType: doc.mimeType || 'video/x-matroska', fileName: fileName, duration: 0, width: 0, height: 0 };
+        }
+        if (['mp3', 'm4a', 'ogg', 'opus', 'flac', 'wav'].indexOf(ext) !== -1) {
+            return { type: 'audio', id: m.id, date: m.date, caption: m.message || '', size: doc.size || 0, mimeType: doc.mimeType || 'audio/mpeg', fileName: fileName, duration: 0 };
+        }
+    }
+    return null;
+}
+
+// Remuxea MKV -> MP4 (solo cambia el contenedor, sin recodificar). Requiere ffmpeg.
+function remuxMkv(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+        cp.execFile('ffmpeg', ['-y', '-i', inputPath, '-c', 'copy', '-movflags', '+faststart', outputPath],
+            { timeout: 0 }, (err) => {
+                if (err) reject(err); else resolve();
+            });
+    });
+}
+
+// Convierte SRT -> WebVTT para los subtítulos del reproductor.
+function srtToVtt(srt) {
+    if (/^\s*WEBVTT/i.test(srt)) return srt;
+    let vtt = 'WEBVTT\n\n';
+    vtt += srt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+    return vtt;
+}
+
+// Elige una miniatura mediana ('m', ~800px) para que se vea nítida en la rejilla.
+function pickThumb(m) {
+    let sizes = [];
+    if (m && m.media instanceof Api.MessageMediaPhoto && m.media.photo) {
+        sizes = m.media.photo.sizes || [];
+    } else if (m && m.media instanceof Api.MessageMediaDocument && m.media.document) {
+        sizes = m.media.document.thumbs || [];
+    }
+    const valid = [];
+    for (const s of sizes) {
+        if (s instanceof Api.PhotoSize || s instanceof Api.PhotoSizeProgressive) {
+            valid.push(s);
+        }
+    }
+    if (!valid.length) return 0;
+    for (const s of valid) {
+        if (s.type === 'm') return s;
+    }
+    return valid[valid.length - 1];
 }
 
 async function getEntityById(id, className) {
@@ -310,20 +395,27 @@ const server = http.createServer(async function (req, res) {
 
         if (p === '/api/dialogs') {
             const dialogs = await client.getDialogs({});
-            const list = [];
+            const main = [];
+            const archived = [];
+            let meId = null;
+            try { const me = await client.getMe(); meId = me ? String(me.id) : null; } catch (e) {}
             for (const d of dialogs) {
                 const e = d.entity;
                 if (!e) continue;
-                if (e.className === 'Channel' || e.className === 'Chat') {
-                    list.push({
+                const isSaved = (e.className === 'User' && (e.self === true || (meId && String(e.id) === meId)));
+                if (e.className === 'Channel' || e.className === 'Chat' || isSaved) {
+                    const item = {
                         id: String(e.id),
                         className: e.className,
-                        title: e.title || d.title || '',
-                        username: e.username || ''
-                    });
+                        title: isSaved ? 'Mensajes guardados' : (e.title || d.title || ''),
+                        username: e.username || '',
+                        saved: isSaved
+                    };
+                    if (d.folderId === 1) archived.push(item);
+                    else main.push(item);
                 }
             }
-            sendJson(res, 200, { dialogs: list });
+            sendJson(res, 200, { dialogs: main, archived: archived });
             return;
         }
 
@@ -332,17 +424,161 @@ const server = http.createServer(async function (req, res) {
             const className = u.searchParams.get('className') || 'Channel';
             const offsetId = Number(u.searchParams.get('offsetId') || 0) || 0;
             const entity = await getEntityById(chatId, className);
+            const [pv, docs] = await Promise.all([
+                client.getMessages(entity, { filter: new Api.InputMessagesFilterPhotoVideo(), limit: 100, offsetId: offsetId }),
+                client.getMessages(entity, { filter: new Api.InputMessagesFilterDocument(), limit: 100, offsetId: offsetId })
+            ]);
+            const seen = new Map();
+            for (const m of pv) { const c = classifyMedia(m); if (c && !seen.has(c.id)) seen.set(c.id, c); }
+            for (const m of docs) { const c = classifyMedia(m); if (c && !seen.has(c.id)) seen.set(c.id, c); }
+            const items = Array.from(seen.values()).sort((a, b) => b.id - a.id);
+            sendJson(res, 200, { messages: items, title: entity.title || '' });
+            return;
+        }
+
+        if (p === '/api/avatar') {
+            const chatId = u.searchParams.get('chat');
+            const className = u.searchParams.get('className') || 'Channel';
+            const key = 'a:' + chatId + ':' + className;
+            if (avatarCache.has(key)) { serveImage(res, avatarCache.get(key)); return; }
+            const entity = await getEntityById(chatId, className);
+            const buf = await client.downloadProfilePhoto(entity, { isBig: false });
+            if (!buf || !buf.length) { res.writeHead(404); res.end('no avatar'); return; }
+            cachePut(avatarCache, key, buf);
+            serveImage(res, buf);
+            return;
+        }
+
+        if (p === '/api/thumb') {
+            const chatId = u.searchParams.get('chat');
+            const className = u.searchParams.get('className') || 'Channel';
+            const msgId = Number(u.searchParams.get('msgId') || 0);
+            const key = 't:' + chatId + ':' + msgId;
+            if (thumbCache.has(key)) { serveImage(res, thumbCache.get(key)); return; }
+            const entity = await getEntityById(chatId, className);
+            const msgs = await client.getMessages(entity, { ids: [msgId] });
+            if (!msgs || !msgs.length) { res.writeHead(404); res.end('no msg'); return; }
+            const buf = await client.downloadMedia(msgs[0], { thumb: pickThumb(msgs[0]) });
+            if (!buf || !buf.length) { res.writeHead(404); res.end('no thumb'); return; }
+            cachePut(thumbCache, key, buf);
+            serveImage(res, buf);
+            return;
+        }
+
+        if (p === '/api/photo') {
+            const chatId = u.searchParams.get('chat');
+            const className = u.searchParams.get('className') || 'Channel';
+            const msgId = Number(u.searchParams.get('msgId') || 0);
+            const entity = await getEntityById(chatId, className);
+            const msgs = await client.getMessages(entity, { ids: [msgId] });
+            if (!msgs || !msgs.length) { res.writeHead(404); res.end('no msg'); return; }
+            const buf = await client.downloadMedia(msgs[0], {});
+            if (!buf || !buf.length) { res.writeHead(404); res.end('no photo'); return; }
+            serveImage(res, buf);
+            return;
+        }
+
+        if (p === '/api/search') {
+            const chatId = u.searchParams.get('chat');
+            const className = u.searchParams.get('className') || 'Channel';
+            const q = u.searchParams.get('q') || '';
+            if (!q) { sendJson(res, 200, { messages: [] }); return; }
+            const entity = await getEntityById(chatId, className);
             const result = await client.getMessages(entity, {
-                filter: new Api.InputMessagesFilterVideo(),
-                limit: 50,
-                offsetId: offsetId
+                filter: new Api.InputMessagesFilterPhotoVideo(),
+                search: q,
+                limit: 50
             });
-            const videos = [];
+            const items = [];
             for (const m of result) {
-                const vi = videoInfo(m);
-                if (vi) videos.push(vi);
+                const mi = classifyMedia(m);
+                if (mi) items.push(mi);
             }
-            sendJson(res, 200, { messages: videos, title: entity.title || '' });
+            sendJson(res, 200, { messages: items, title: entity.title || '' });
+            return;
+        }
+
+        if (p === '/api/searchGlobal') {
+            const q = u.searchParams.get('q') || '';
+            if (!q) { sendJson(res, 200, { messages: [] }); return; }
+            const dialogs = await client.getDialogs({});
+            let meId = null;
+            try { const me = await client.getMe(); meId = me ? String(me.id) : null; } catch (e) {}
+            const results = [];
+            for (const d of dialogs) {
+                const e = d.entity;
+                if (!e) continue;
+                const isSaved = (e.className === 'User' && (e.self === true || (meId && String(e.id) === meId)));
+                if (e.className !== 'Channel' && e.className !== 'Chat' && !isSaved) continue;
+                try {
+                    const msgs = await client.getMessages(e, { filter: new Api.InputMessagesFilterPhotoVideo(), search: q, limit: 5 });
+                    for (const m of msgs) {
+                        const c = classifyMedia(m);
+                        if (c) {
+                            c.chatId = String(e.id);
+                            c.className = e.className;
+                            c.chatTitle = isSaved ? 'Mensajes guardados' : (e.title || d.title || '');
+                            results.push(c);
+                        }
+                    }
+                } catch (err) {}
+            }
+            results.sort((a, b) => b.id - a.id);
+            sendJson(res, 200, { messages: results.slice(0, 80) });
+            return;
+        }
+
+        if (p === '/api/subtitles') {
+            const chatId = u.searchParams.get('chat');
+            const className = u.searchParams.get('className') || 'Channel';
+            const entity = await getEntityById(chatId, className);
+            const result = await client.getMessages(entity, { filter: new Api.InputMessagesFilterDocument(), limit: 100 });
+            const subs = [];
+            for (const m of result) {
+                const doc = m.media && m.media.document;
+                if (!doc) continue;
+                let name = '';
+                for (const a of (doc.attributes || [])) if (a.fileName) name = a.fileName;
+                if (/\.(srt|ass|vtt)$/i.test(name)) {
+                    subs.push({ id: m.id, fileName: name, date: m.date });
+                }
+            }
+            sendJson(res, 200, { subtitles: subs });
+            return;
+        }
+
+        if (p === '/api/subtitle') {
+            const chatId = u.searchParams.get('chat');
+            const className = u.searchParams.get('className') || 'Channel';
+            const msgId = Number(u.searchParams.get('msgId') || 0);
+            const entity = await getEntityById(chatId, className);
+            const msgs = await client.getMessages(entity, { ids: [msgId] });
+            if (!msgs || !msgs.length) { res.writeHead(404); res.end('no msg'); return; }
+            const buf = await client.downloadMedia(msgs[0], {});
+            if (!buf || !buf.length) { res.writeHead(404); res.end('no sub'); return; }
+            const vtt = srtToVtt(buf.toString('utf8'));
+            res.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Content-Length': Buffer.byteLength(vtt) });
+            res.end(vtt);
+            return;
+        }
+
+        if (p === '/api/audio') {
+            const chatId = u.searchParams.get('chat');
+            const className = u.searchParams.get('className') || 'Channel';
+            const msgId = Number(u.searchParams.get('msgId') || 0);
+            const entity = await getEntityById(chatId, className);
+            const msgs = await client.getMessages(entity, { ids: [msgId] });
+            if (!msgs || !msgs.length) { res.writeHead(404); res.end('no msg'); return; }
+            const msg = msgs[0];
+            const ai = classifyMedia(msg);
+            if (!ai || ai.type !== 'audio') { res.writeHead(404); res.end('not audio'); return; }
+            const fileName = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex') + '.mp3';
+            const filePath = path.join(CACHE_DIR, fileName);
+            if (!fs.existsSync(filePath)) {
+                await client.downloadMedia(msg, { outputFile: filePath });
+            }
+            fs.utimes(filePath, new Date(), new Date(), function () {});
+            serveFileWithRange(res, filePath, ai.mimeType, req);
             return;
         }
 
@@ -354,16 +590,31 @@ const server = http.createServer(async function (req, res) {
             const msgs = await client.getMessages(entity, { ids: [msgId] });
             if (!msgs || !msgs.length) { res.writeHead(404); res.end('no message'); return; }
             const msg = msgs[0];
-            const vi = videoInfo(msg);
-            if (!vi) { res.writeHead(404); res.end('not a video'); return; }
-            const fileName = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex') + '.mp4';
+            const vi = classifyMedia(msg);
+            if (!vi || (vi.type !== 'video' && vi.type !== 'video_file')) { res.writeHead(404); res.end('not a video'); return; }
+            const base = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex');
+            const fileName = base + '.mp4';
             const filePath = path.join(CACHE_DIR, fileName);
             if (!fs.existsSync(filePath)) {
-                await client.downloadMedia(msg, { outputFile: filePath });
+                if (vi.type === 'video_file') {
+                    const mkvPath = path.join(CACHE_DIR, base + '.mkv');
+                    if (!fs.existsSync(mkvPath)) {
+                        await client.downloadMedia(msg, { outputFile: mkvPath });
+                    }
+                    try {
+                        await remuxMkv(mkvPath, filePath);
+                        try { fs.unlinkSync(mkvPath); } catch (e) {}
+                    } catch (e) {
+                        try { fs.unlinkSync(mkvPath); } catch (e2) {}
+                        sendJson(res, 500, { error: 'No se pudo convertir el MKV. Instala ffmpeg en el teléfono (pkg install ffmpeg) y verifica que el video sea H.264/AAC.' });
+                        return;
+                    }
+                } else {
+                    await client.downloadMedia(msg, { outputFile: filePath });
+                }
             }
-            // renovar el timestamp para que no se borre mientras se ve
             fs.utimes(filePath, new Date(), new Date(), function () {});
-            serveFileWithRange(res, filePath, vi.mimeType, req);
+            serveFileWithRange(res, filePath, 'video/mp4', req);
             return;
         }
 

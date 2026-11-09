@@ -1,6 +1,6 @@
 {
     "name": "telegram-tv-backend",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Servidor de Telegram para la app Telegram TV (webOS)",
     "main": "server.js",
     "scripts": {

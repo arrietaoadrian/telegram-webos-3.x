@@ -35,13 +35,19 @@ This project splits the work in two:
 ## Features
 
 - QR sign-in (Telegram → Settings → Devices → Link Desktop Device). Two-step verification (2FA) is detected and
-  supported.
-- The session persists, so you only scan the QR once.
-- Lists the channels/groups that contain videos (sent as videos).
-- Grid of videos with duration and size; play with the remote.
-- Spatial navigation (d-pad arrows + OK + Back).
-- Temporary files: the server deletes cached videos automatically (30 min without use, and on restart). The TV never
+  supported; the session persists, so you scan the QR only once.
+- Channel avatars, video thumbnails, and photos posted in channels (full-screen viewer with zoom and navigation).
+- Plays MP4 videos and **MKV files** (remuxed to MP4 with ffmpeg on the server; H.264/AAC only).
+- **Resume playback**: remembers where you left off and shows a progress bar on watched videos.
+- **Subtitles** (.srt/.vtt) picked up automatically when a matching file is posted in the chat.
+- **Music**: songs posted in channels play in the same player.
+- **Search**: global (across all chats) and per-chat.
+- **Saved Messages** pinned at the top, and **archived chats** in a separate list.
+- Publication date/time on every item, and "load more" pagination.
+- Spatial navigation (d-pad arrows + OK + Back) with video controls (seek ±10s / ±1min, play/pause, progress bar).
+- Temporary files: the server deletes cached media automatically (30 min without use, and on restart). The TV never
   stores anything.
+- A **web player** (`web.html`) to browse and watch from any PC browser using the same server.
 
 ## Download
 
@@ -71,7 +77,7 @@ You should see `Telegram TV backend escuchando en http://0.0.0.0:8080`.
 On Android with Termux:
 
 ```bash
-pkg update && pkg install nodejs curl -y
+pkg update && pkg install nodejs curl ffmpeg -y
 cd ~ && mkdir tg-backend && cd tg-backend
 # copy server.js, package.json, config.json here, then:
 npm install
@@ -96,7 +102,7 @@ You have two options: download the prebuilt `.ipk` from
    cd app
    ares-package . -o bin --no-minify
    ```
-   The output is `bin/com.telegramtv.app_0.1.0_all.ipk`.
+   The output is `bin/com.telegramtv.app_0.2.0_all.ipk`.
 
 3. Install the `.ipk` on the TV. Any of these works:
    - **Homebrew Channel** (recommended on a rooted TV),
@@ -117,7 +123,8 @@ You have two options: download the prebuilt `.ipk` from
 
 - The TV and the server must be on the same network.
 - Only **H.264** video plays (HEVC/H.265 is not supported by the old TV). Most Telegram videos are H.264.
-- Files sent **as documents (MKV)** are not listed yet; only videos sent "as video".
+- **MKV** files are supported (remuxed to MP4 on the server), but require `ffmpeg` installed and H.264/AAC codecs.
+- Subtitles support `.srt`/`.vtt` (`.ass` styling is not rendered).
 - Keep the server running (Termux open) while watching. Android may kill background apps — use `termux-wake-lock`
   or disable battery optimization for Termux.
 
