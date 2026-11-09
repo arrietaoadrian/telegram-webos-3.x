@@ -902,9 +902,11 @@ const server = http.createServer(async function (req, res) {
             }
             fs.utimes(filePath, new Date(), new Date(), function () {});
             // Detecta códecs que el TV no reproduce (H.265/HEVC, VP9, AV1...) y los convierte a H.264.
+            // Si el cliente manda native=1 (TV moderno), se sirve el archivo tal cual sin transcodificar.
+            const native = u.searchParams.get('native') === '1';
             const codec = await probeVideoCodec(filePath);
-            logError('video', 'codec=' + codec + ' msgId=' + msgId + ' chat=' + chatId);
-            if (codec && codec !== 'h264' && codec !== 'avc' && codec !== 'avc1') {
+            logError('video', 'codec=' + codec + ' native=' + native + ' msgId=' + msgId + ' chat=' + chatId);
+            if (!native && codec && codec !== 'h264' && codec !== 'avc' && codec !== 'avc1') {
                 const h264Path = path.join(CACHE_DIR, base + '.h264.mp4');
                 if (!fs.existsSync(h264Path)) {
                     logError('video', 'transcodificando a H.264 msgId=' + msgId);
