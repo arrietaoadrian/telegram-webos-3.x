@@ -32,6 +32,7 @@ This project splits the work in two:
 
 ## Features
 
+- **Interface in Spanish and English** — switch with a button in the top bar (Spanish by default).
 - QR sign-in (Telegram → Settings → Devices → Link Desktop Device). Two-step verification (2FA) is detected and
   supported; the session persists, so you scan the QR only once.
 - Channel avatars, video thumbnails, and photos posted in channels (full-screen viewer with zoom and navigation).

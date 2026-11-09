@@ -1,6 +1,128 @@
 (function () {
   'use strict';
 
+  // ===== Translations (ES / EN) =====
+  var I18N = {
+    es: {
+      setup_sub: 'Conecta el TV con el servidor que corre en tu teléfono.',
+      setup_hint: 'Esta dirección aparece en Termux (celular) al ejecutar <b>node server.js</b>. Es la IP de tu teléfono en el Wi-Fi + el puerto 8080.<br>Ejemplo: <b>http://192.168.1.50:8080</b>',
+      connect: 'Conectar',
+      enter_server: 'Ingresa la dirección del servidor.',
+      sign_in: 'Iniciar sesión',
+      scan_qr: 'Escanea este QR con Telegram:<br>Configuración → Dispositivos → Escanear QR',
+      loading_qr: 'Cargando QR...',
+      password: 'Contraseña',
+      two_step: 'Tu cuenta tiene verificación en dos pasos',
+      password_ph: 'Contraseña de Telegram',
+      submit: 'Enviar',
+      enter_password: 'Ingresa tu contraseña.',
+      verifying: 'Verificando...',
+      channels: 'Canales',
+      archived: 'Archivados',
+      refresh: 'Recargar',
+      logout: 'Salir',
+      search_ph: 'Buscar en este chat...',
+      search: 'Buscar',
+      lang_switch: 'English',
+      no_archived: 'No hay chats archivados.',
+      no_channels: 'No se encontraron canales.',
+      saved_messages: 'Mensajes guardados',
+      your_saved: 'Tus mensajes guardados',
+      channel: 'Canal',
+      back_channels: 'Volver a canales',
+      back_all: 'Volver a todos',
+      no_media: 'No hay medios en este chat.',
+      no_results: 'Sin resultados para "',
+      photo: 'Foto',
+      song: 'Canción',
+      video: 'Video',
+      load_more: 'Cargar más',
+      back: 'Volver',
+      pause: 'Pausa',
+      play: 'Reproducir',
+      converting_mkv: 'Convirtiendo MKV (puede tardar)...',
+      loading_video: 'Cargando video...',
+      could_not_play: 'No se pudo reproducir. Si es MKV, verifica tener ffmpeg y que sea H.264/AAC.',
+      subtitles: 'Subtítulos',
+      loading_music: 'Cargando música...',
+      loading: 'Cargando...',
+      no_connection: 'Sin conexión',
+      no_connection_server: 'Sin conexión con el servidor (',
+      error: 'Error: ',
+      line: 'línea',
+      months: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+    },
+    en: {
+      setup_sub: 'Connect the TV to the server running on your phone.',
+      setup_hint: 'This address appears in Termux (phone) when you run <b>node server.js</b>. It\'s your phone\'s Wi-Fi IP + port 8080.<br>Example: <b>http://192.168.1.50:8080</b>',
+      connect: 'Connect',
+      enter_server: 'Enter the server address.',
+      sign_in: 'Sign in',
+      scan_qr: 'Scan this QR with Telegram:<br>Settings → Devices → Scan QR',
+      loading_qr: 'Loading QR...',
+      password: 'Password',
+      two_step: 'Your account has two-step verification',
+      password_ph: 'Telegram password',
+      submit: 'Submit',
+      enter_password: 'Enter your password.',
+      verifying: 'Verifying...',
+      channels: 'Channels',
+      archived: 'Archived',
+      refresh: 'Refresh',
+      logout: 'Log out',
+      search_ph: 'Search in this chat...',
+      search: 'Search',
+      lang_switch: 'Español',
+      no_archived: 'No archived chats.',
+      no_channels: 'No channels found.',
+      saved_messages: 'Saved Messages',
+      your_saved: 'Your saved messages',
+      channel: 'Channel',
+      back_channels: 'Back to channels',
+      back_all: 'Back to all',
+      no_media: 'No media in this chat.',
+      no_results: 'No results for "',
+      photo: 'Photo',
+      song: 'Song',
+      video: 'Video',
+      load_more: 'Load more',
+      back: 'Back',
+      pause: 'Pause',
+      play: 'Play',
+      converting_mkv: 'Converting MKV (may take a while)...',
+      loading_video: 'Loading video...',
+      could_not_play: 'Could not play. If it is MKV, make sure ffmpeg is installed and it is H.264/AAC.',
+      subtitles: 'Subtitles',
+      loading_music: 'Loading music...',
+      loading: 'Loading...',
+      no_connection: 'No connection',
+      no_connection_server: 'No connection to the server (',
+      error: 'Error: ',
+      line: 'line',
+      months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    }
+  };
+
+  var LANG = 'es';
+  function t(key) {
+    if (I18N[LANG] && I18N[LANG][key] !== undefined) return I18N[LANG][key];
+    if (I18N.en && I18N.en[key] !== undefined) return I18N.en[key];
+    return key;
+  }
+  function setLang(lang) {
+    LANG = lang;
+    try { localStorage.setItem('tg_lang', LANG); } catch (e) {}
+    applyI18n();
+  }
+  function applyI18n() {
+    var els = document.querySelectorAll('[data-i18n]');
+    for (var i = 0; i < els.length; i++) els[i].innerHTML = t(els[i].getAttribute('data-i18n'));
+    var phs = document.querySelectorAll('[data-i18n-ph]');
+    for (var j = 0; j < phs.length; j++) phs[j].setAttribute('placeholder', t(phs[j].getAttribute('data-i18n-ph')));
+    var lb = $('btn-lang');
+    if (lb) lb.textContent = t('lang_switch');
+  }
+
   var BACKEND = null;
   var screen = 'setup';
   var curChat = null, curClassName = null, curChatTitle = '';
@@ -48,7 +170,7 @@
     if (!ts) return '';
     var d = new Date(ts * 1000);
     if (isNaN(d.getTime())) return '';
-    var months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    var months = t('months');
     var hh = d.getHours(), mm = d.getMinutes();
     return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear() + ' · ' + (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
   }
@@ -78,7 +200,7 @@
   }
 
   function setTopbar(opts) {
-    $('main-title').textContent = opts.title || 'Channels';
+    $('main-title').textContent = opts.title || t('channels');
     $('btn-archive').className = 'btn focusable' + (opts.showArchive ? '' : ' hidden');
     if (opts.archiveLabel) $('btn-archive').textContent = opts.archiveLabel;
     $('search-input').value = '';
@@ -102,7 +224,7 @@
         else cb(new Error('HTTP ' + xhr.status + (data && data.error ? ' ' + data.error : '')), data);
       }
     };
-    xhr.onerror = function () { cb(new Error('No connection to the server (' + BACKEND + ')'), null); };
+    xhr.onerror = function () { cb(new Error(t('no_connection_server') + BACKEND + ')'), null); };
     try { xhr.send(body ? JSON.stringify(body) : null); } catch (e) { cb(e, null); }
   }
 
@@ -115,14 +237,14 @@
         else cb(new Error('HTTP ' + xhr.status), null);
       }
     };
-    xhr.onerror = function () { cb(new Error('No connection'), null); };
+    xhr.onerror = function () { cb(new Error(t('no_connection')), null); };
     xhr.send(null);
   }
 
   // ===== Setup =====
   function doSetup() {
     var u = $('setup-url').value.trim().replace(/\/+$/, '');
-    if (!u) { $('setup-msg').textContent = 'Enter the server address.'; return; }
+    if (!u) { $('setup-msg').textContent = t('enter_server'); return; }
     BACKEND = u;
     try { localStorage.setItem('tg_backend', BACKEND); } catch (e) {}
     $('setup-msg').textContent = '';
@@ -138,7 +260,7 @@
   function showLogin() {
     setView('login');
     stopPolling();
-    $('login-msg').textContent = 'Loading QR...';
+    $('login-msg').textContent = t('loading_qr');
     api('/api/login', 'POST', null, function (err) {
       if (err) { $('login-msg').textContent = err.message; return; }
       $('login-msg').textContent = '';
@@ -159,8 +281,8 @@
   }
   function doPassword() {
     var pw = $('pass-input').value;
-    if (!pw) { $('pass-msg').textContent = 'Enter your password.'; return; }
-    $('pass-msg').textContent = 'Verifying...';
+    if (!pw) { $('pass-msg').textContent = t('enter_password'); return; }
+    $('pass-msg').textContent = t('verifying');
     api('/api/password', 'POST', { password: pw }, function (err) {
       if (err) { $('pass-msg').textContent = err.message; return; }
       $('pass-msg').textContent = '';
@@ -174,14 +296,14 @@
     lastList = 'channels';
     curChat = null;
     setView('main');
-    setTopbar({ title: 'Channels', showArchive: true, archiveLabel: 'Archived' });
+    setTopbar({ title: t('channels'), showArchive: true, archiveLabel: t('archived') });
     loadDialogs(false);
   }
   function showArchived() {
     lastList = 'archived';
     curChat = null;
     setView('main');
-    setTopbar({ title: 'Archived', showArchive: true, archiveLabel: 'Channels' });
+    setTopbar({ title: t('archived'), showArchive: true, archiveLabel: t('channels') });
     loadDialogs(true);
   }
   function loadDialogs(archivedOnly) {
@@ -191,7 +313,7 @@
       if (err) { $('main-content').innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; return; }
       var list = archivedOnly ? (data.archived || []) : (data.dialogs || []);
       if (!list.length) {
-        $('main-content').innerHTML = '<div class="empty">' + (archivedOnly ? 'No archived chats.' : 'No channels found.') + '</div>';
+        $('main-content').innerHTML = '<div class="empty">' + (archivedOnly ? t('no_archived') : t('no_channels')) + '</div>';
         return;
       }
       var html = '';
@@ -200,10 +322,11 @@
         var initial = (c.title || '?').charAt(0).toUpperCase();
         var avatarSrc = BACKEND + '/api/avatar?chat=' + enc(c.id) + '&className=' + enc(c.className);
         var savedCls = c.saved ? ' saved' : '';
-        html += '<div class="row focusable' + savedCls + '" tabindex="0" data-action="chat" data-chat="' + esc(c.id) + '" data-class="' + esc(c.className) + '" data-title="' + esc(c.title || '') + '">'
+        var title = c.saved ? t('saved_messages') : (c.title || c.username || c.id);
+        html += '<div class="row focusable' + savedCls + '" tabindex="0" data-action="chat" data-chat="' + esc(c.id) + '" data-class="' + esc(c.className) + '" data-title="' + esc(title) + '">'
           + '<div class="avatar"><span class="letter">' + esc(initial) + '</span><img src="' + esc(avatarSrc) + '" onerror="this.remove()" alt=""></div>'
-          + '<div><div class="row-title">' + esc(c.title || c.username || c.id) + '</div>'
-          + '<div class="row-sub">' + (c.saved ? 'Your saved messages' : (c.username ? '@' + esc(c.username) : 'Channel')) + '</div></div></div>';
+          + '<div><div class="row-title">' + esc(title) + '</div>'
+          + '<div class="row-sub">' + (c.saved ? t('your_saved') : (c.username ? '@' + esc(c.username) : t('channel'))) + '</div></div></div>';
       }
       $('main-content').innerHTML = html;
       focusFirst();
@@ -220,17 +343,17 @@
     subList = [];
     activeSub = null;
     setView('main');
-    setTopbar({ title: title || 'Videos', showArchive: false });
+    setTopbar({ title: title || t('channels'), showArchive: false });
     loadMessages('');
   }
 
   function renderGrid(list, showBack, showLoadMore, query) {
     var html = '';
     if (showBack) {
-      html += '<div class="row focusable" tabindex="0" data-action="back-list"><div class="avatar" style="background:#444"><span class="letter">&#8592;</span></div><div><div class="row-title">' + (query ? 'Back to all' : 'Back to channels') + '</div></div></div>';
+      html += '<div class="row focusable" tabindex="0" data-action="back-list"><div class="avatar" style="background:#444"><span class="letter">&#8592;</span></div><div><div class="row-title">' + (query ? t('back_all') : t('back_channels')) + '</div></div></div>';
     }
     if (!list.length) {
-      html += '<div class="empty">' + (query ? 'No results for "' + esc(query) + '".' : 'No media in this chat.') + '</div>';
+      html += '<div class="empty">' + (query ? t('no_results') + esc(query) + '".' : t('no_media')) + '</div>';
     } else {
       html += '<div class="grid">';
       for (var i = 0; i < list.length; i++) {
@@ -247,26 +370,26 @@
         var dateStr = fmtDate(v.date);
         if (v.type === 'photo') {
           html += '<div class="vcard focusable" tabindex="0" data-action="photo" data-msg="' + v.id + '">'
-            + '<div class="vthumb"><img src="' + esc(thumb) + '" alt=""><span class="tag">Photo</span></div>'
-            + '<div class="vtitle">' + (cap || ('Photo ' + (i + 1))) + '</div>'
+            + '<div class="vthumb"><img src="' + esc(thumb) + '" alt=""><span class="tag">' + t('photo') + '</span></div>'
+            + '<div class="vtitle">' + (cap || (t('photo') + ' ' + (i + 1))) + '</div>'
             + chatLabel + '<div class="vmeta">' + dateStr + '</div></div>';
         } else if (v.type === 'audio') {
           html += '<div class="vcard focusable" tabindex="0" data-action="audio" data-msg="' + v.id + '">'
             + '<div class="vthumb"><span class="vplay">&#9835;</span><span class="tag">' + fmtDur(v.duration) + '</span></div>'
-            + '<div class="vtitle">' + (cap || ('Song ' + (i + 1))) + '</div>'
+            + '<div class="vtitle">' + (cap || (t('song') + ' ' + (i + 1))) + '</div>'
             + chatLabel + '<div class="vmeta">' + dateStr + ' · ' + fmtSize(v.size) + '</div></div>';
         } else {
           var isMkv = (v.type === 'video_file');
           var tag = isMkv ? 'MKV · ' + fmtDur(v.duration) : fmtDur(v.duration);
           html += '<div class="vcard focusable" tabindex="0" data-action="play" data-msg="' + v.id + '">'
             + '<div class="vthumb"><img src="' + esc(thumb) + '" onerror="this.style.display=\'none\'" alt=""><span class="vplay">&#9654;</span><span class="tag">' + tag + '</span>' + progBar + '</div>'
-            + '<div class="vtitle">' + (cap || ('Video ' + (i + 1))) + '</div>'
+            + '<div class="vtitle">' + (cap || (t('video') + ' ' + (i + 1))) + '</div>'
             + chatLabel + '<div class="vmeta">' + dateStr + ' · ' + fmtSize(v.size) + '</div></div>';
         }
       }
       html += '</div>';
       if (showLoadMore) {
-        html += '<div class="row focusable" tabindex="0" data-action="more"><div class="avatar" style="background:#444"><span class="letter">+</span></div><div><div class="row-title">Load more</div></div></div>';
+        html += '<div class="row focusable" tabindex="0" data-action="more"><div class="avatar" style="background:#444"><span class="letter">+</span></div><div><div class="row-title">' + t('load_more') + '</div></div></div>';
       }
     }
     $('main-content').innerHTML = html;
@@ -370,14 +493,14 @@
     curMsgId = Number(msgId);
     var url = BACKEND + '/api/video?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + enc(String(msgId));
     $('player-title').textContent = curChatTitle || '';
-    $('player-msg').textContent = (playingType === 'video_file') ? 'Converting MKV (may take a while)...' : 'Loading video...';
+    $('player-msg').textContent = (playingType === 'video_file') ? t('converting_mkv') : t('loading_video');
     var v = $('video');
     try { v.pause(); } catch (e) {}
     removeSubtitleTracks();
     v.removeAttribute('src');
     try { v.load(); } catch (e) {}
     v.src = url;
-    $('btn-playpause').textContent = 'Pause';
+    $('btn-playpause').textContent = t('pause');
     $('player-time').textContent = '0:00 / 0:00';
     $('pbar-fill').style.width = '0%';
     var key = progKey(curChat, msgId);
@@ -394,7 +517,7 @@
     }
     v.addEventListener('loadedmetadata', onLoaded);
     v.addEventListener('playing', function () { $('player-msg').textContent = ''; });
-    v.addEventListener('error', function () { $('player-msg').textContent = 'Could not play. If it is MKV, make sure ffmpeg is installed and it is H.264/AAC.'; });
+    v.addEventListener('error', function () { $('player-msg').textContent = t('could_not_play'); });
     try { v.play(); } catch (e) {}
     setView('player');
   }
@@ -420,7 +543,7 @@
         var url = URL.createObjectURL(blob);
         var track = document.createElement('track');
         track.kind = 'subtitles';
-        track.label = 'Subtitles';
+        track.label = t('subtitles');
         track.srclang = 'es';
         track.src = url;
         track.default = true;
@@ -436,7 +559,7 @@
     curMsgId = Number(msgId);
     var url = BACKEND + '/api/audio?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + enc(String(msgId));
     $('player-title').textContent = curChatTitle || '';
-    $('player-msg').textContent = 'Loading music...';
+    $('player-msg').textContent = t('loading_music');
     var v = $('video');
     try { v.pause(); } catch (e) {}
     removeSubtitleTracks();
@@ -444,7 +567,7 @@
     try { v.load(); } catch (e) {}
     v.src = url;
     v.addEventListener('playing', function () { $('player-msg').textContent = ''; });
-    $('btn-playpause').textContent = 'Pause';
+    $('btn-playpause').textContent = t('pause');
     $('player-time').textContent = '0:00 / 0:00';
     $('pbar-fill').style.width = '0%';
     try { v.play(); } catch (e) {}
@@ -467,10 +590,10 @@
   function seekBy(seconds) {
     var v = $('video');
     if (!v.duration) return;
-    var t = v.currentTime + seconds;
-    if (t < 0) t = 0;
-    if (t > v.duration) t = v.duration;
-    v.currentTime = t;
+    var t2 = v.currentTime + seconds;
+    if (t2 < 0) t2 = 0;
+    if (t2 > v.duration) t2 = v.duration;
+    v.currentTime = t2;
     updatePlayerTime();
   }
   function togglePlay() { var v = $('video'); if (v.paused) v.play(); else v.pause(); }
@@ -572,11 +695,19 @@
   window.onerror = function (msg, src, line) {
     try {
       var el = $('setup-msg') || $('login-msg') || $('player-msg');
-      if (el) el.textContent = 'Error: ' + msg + ' (line ' + line + ')';
+      if (el) el.textContent = t('error') + msg + ' (' + t('line') + ' ' + line + ')';
     } catch (e) {}
   };
 
+  function reRender() {
+    if (screen === 'channels') loadDialogs(false);
+    else if (screen === 'archived') loadDialogs(true);
+    else if (screen === 'chat') loadMessages('');
+    else if (screen === 'photo') renderPhoto();
+  }
+
   function init() {
+    try { var savedLang = localStorage.getItem('tg_lang'); if (savedLang === 'en' || savedLang === 'es') LANG = savedLang; } catch (e) {}
     loadProgress();
     $('setup-btn').addEventListener('click', doSetup);
     $('setup-url').addEventListener('keydown', function (e) { if (e.keyCode === 13) doSetup(); });
@@ -595,6 +726,10 @@
     });
     $('btn-search').addEventListener('click', doSearch);
     $('search-input').addEventListener('keydown', function (e) { if (e.keyCode === 13) doSearch(); });
+    $('btn-lang').addEventListener('click', function () {
+      setLang(LANG === 'es' ? 'en' : 'es');
+      reRender();
+    });
     $('btn-player-back').addEventListener('click', function () { saveCurProgress(); exitPlayer(); });
     $('btn-photo-back').addEventListener('click', function () { setView('main'); focusFirst(); });
     $('btn-rewind').addEventListener('click', function () { seekBy(-10); });
@@ -608,13 +743,15 @@
         progress[progKey(curChat, curMsgId)] = Math.floor(v.currentTime);
       }
     });
-    v.addEventListener('play', function () { $('btn-playpause').textContent = 'Pause'; });
-    v.addEventListener('pause', function () { $('btn-playpause').textContent = 'Play'; });
+    v.addEventListener('play', function () { $('btn-playpause').textContent = t('pause'); });
+    v.addEventListener('pause', function () { $('btn-playpause').textContent = t('play'); });
 
     $('main-content').addEventListener('click', function (e) {
       var el = findUp(e.target, 'data-action');
       if (el) onAction(el.getAttribute('data-action'), el);
     });
+
+    applyI18n();
 
     try { BACKEND = localStorage.getItem('tg_backend'); } catch (e) {}
     if (BACKEND) {

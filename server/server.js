@@ -407,7 +407,7 @@ const server = http.createServer(async function (req, res) {
                     const item = {
                         id: String(e.id),
                         className: e.className,
-                        title: isSaved ? 'Mensajes guardados' : (e.title || d.title || ''),
+                        title: isSaved ? 'Saved Messages' : (e.title || d.title || ''),
                         username: e.username || '',
                         saved: isSaved
                     };
@@ -517,7 +517,7 @@ const server = http.createServer(async function (req, res) {
                         if (c) {
                             c.chatId = String(e.id);
                             c.className = e.className;
-                            c.chatTitle = isSaved ? 'Mensajes guardados' : (e.title || d.title || '');
+                            c.chatTitle = isSaved ? 'Saved Messages' : (e.title || d.title || '');
                             results.push(c);
                         }
                     }
