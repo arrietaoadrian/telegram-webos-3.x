@@ -1,11 +1,11 @@
 'use strict';
 
 /*
- * Telegram TV backend — runs on Termux (Android) or any modern Node.js machine.
- * Talks to Telegram (MTProto), produces the QR login, lists your chats and
- * serves the media over HTTP for the TV app to play.
+ * Telegram TV backend — corre en Termux (Android) con Node.js.
+ * Habla con Telegram (MTProto), genera el login por QR, lista tus canales
+ * y sirve los videos por HTTP para que la app del TV los reproduzca.
  *
- * Configuration: edit config.json with your apiId and apiHash (from my.telegram.org).
+ * Configuración: edita config.json con tu apiId y apiHash (de my.telegram.org).
  */
 
 const fs = require('fs');
@@ -26,12 +26,12 @@ let config;
 try {
     config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 } catch (e) {
-    console.error('ERROR: could not read config.json');
+    console.error('ERROR: no se pudo leer config.json');
     process.exit(1);
 }
 
 if (!config.apiId || !config.apiHash || config.apiHash === 'PON_AQUI_TU_API_HASH') {
-    console.error('ERROR: edit config.json with your real apiId and apiHash.');
+    console.error('ERROR: edita config.json con tu apiId y apiHash reales.');
     process.exit(1);
 }
 
@@ -41,8 +41,8 @@ const API_HASH = String(config.apiHash);
 
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-// Media is temporary: deleted automatically.
-const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes without use
+// Los videos son temporales: se borran automáticamente.
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutos sin uso
 
 function cleanupCache() {
     fs.readdir(CACHE_DIR, function (err, files) {
@@ -60,7 +60,14 @@ function cleanupCache() {
     });
 }
 
-// ===== Persistent session =====
+// Escribe errores y avisos en server.log para poder diagnosticar.
+function logError(prefix, msg) {
+    const line = new Date().toISOString() + ' [' + prefix + '] ' + String(msg) + '\n';
+    try { fs.appendFile(path.join(BASE, 'server.log'), line, function () {}); } catch (e) {}
+    console.error(line.trim());
+}
+
+// ===== Sesión persistente =====
 let sessionString = fs.existsSync(SESSION_FILE) ? fs.readFileSync(SESSION_FILE, 'utf8').trim() : '';
 const stringSession = new StringSession(sessionString);
 const client = new TelegramClient(stringSession, API_ID, API_HASH, { connectionRetries: 5 });
@@ -69,7 +76,7 @@ function saveSession() {
     try { fs.writeFileSync(SESSION_FILE, stringSession.save()); } catch (e) {}
 }
 
-// ===== Login state =====
+// ===== Estado de login =====
 let loggedIn = false;
 let loginInProgress = false;
 let qrToken = null;          // Buffer
@@ -129,7 +136,7 @@ async function ensureConnected() {
     return auth;
 }
 
-// In-memory caches for avatars and thumbnails (so they are not re-downloaded on every render).
+// Cachés en memoria para avatares y miniaturas (no se recargan en cada render).
 const avatarCache = new Map();
 const thumbCache = new Map();
 const MAX_CACHE = 120;
@@ -156,7 +163,7 @@ function serveImage(res, buf) {
     res.end(buf);
 }
 
-// ===== Utilities =====
+// ===== Utilidades =====
 function sendJson(res, status, obj) {
     const body = JSON.stringify(obj);
     res.writeHead(status, {
@@ -179,7 +186,7 @@ function sendPng(res, buf) {
     res.end(buf);
 }
 
-// Serve a file with range support (for streaming/seeking)
+// Servir archivo con soporte de rango (para streaming/seeking)
 function serveFileWithRange(res, filePath, mimeType, req) {
     fs.stat(filePath, function (err, stat) {
         if (err) { res.writeHead(404); res.end('not found'); return; }
@@ -247,17 +254,22 @@ function classifyMedia(m) {
             }
         }
         const ext = (fileName.split('.').pop() || '').toLowerCase();
+        const mime = (doc.mimeType || '').toLowerCase();
+        if (ext === 'pdf' || /pdf/.test(mime)) {
+            return { type: 'pdf', id: m.id, date: m.date, caption: m.message || '', size: doc.size || 0, mimeType: doc.mimeType || 'application/pdf', fileName: fileName };
+        }
         if (['mkv', 'avi', 'webm', 'm4v'].indexOf(ext) !== -1) {
             return { type: 'video_file', id: m.id, date: m.date, caption: m.message || '', size: doc.size || 0, mimeType: doc.mimeType || 'video/x-matroska', fileName: fileName, duration: 0, width: 0, height: 0 };
         }
-        if (['mp3', 'm4a', 'ogg', 'opus', 'flac', 'wav'].indexOf(ext) !== -1) {
+        const AUDIO_EXTS = ['mp3', 'm4a', 'm4b', 'aac', 'ogg', 'oga', 'opus', 'flac', 'wav', 'wma', 'mka', 'mid', 'midi', 'amr', 'aiff', 'aif', 'mp2', 'ac3', 'ape', 'alac'];
+        if (AUDIO_EXTS.indexOf(ext) !== -1 || /^audio\//.test(mime)) {
             return { type: 'audio', id: m.id, date: m.date, caption: m.message || '', size: doc.size || 0, mimeType: doc.mimeType || 'audio/mpeg', fileName: fileName, duration: 0 };
         }
     }
     return null;
 }
 
-// Remux MKV -> MP4 (container-only, no re-encode). Requires ffmpeg.
+// Remuxea MKV -> MP4 (solo cambia el contenedor, sin recodificar). Requiere ffmpeg.
 function remuxMkv(inputPath, outputPath) {
     return new Promise((resolve, reject) => {
         cp.execFile('ffmpeg', ['-y', '-i', inputPath, '-c', 'copy', '-movflags', '+faststart', outputPath],
@@ -267,7 +279,49 @@ function remuxMkv(inputPath, outputPath) {
     });
 }
 
-// Convert SRT -> WebVTT for the player's subtitles.
+// Devuelve el nombre del códec de video (ej: 'h264', 'hevc', 'vp9', 'av1'). Vacío si falla.
+function probeVideoCodec(filePath) {
+    return new Promise((resolve) => {
+        cp.execFile('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', filePath],
+            { timeout: 20000 }, (err, stdout) => {
+                if (err) { resolve(''); return; }
+                resolve(String(stdout || '').trim().toLowerCase());
+            });
+    });
+}
+
+// Recodifica a H.264 + AAC (compatible con el TV). Requiere ffmpeg.
+function transcodeToH264(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+        cp.execFile('ffmpeg', ['-y', '-i', inputPath, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outputPath],
+            { timeout: 0 }, (err) => {
+                if (err) reject(err); else resolve();
+            });
+    });
+}
+
+// Devuelve el nombre del códec de audio (ej: 'mp3', 'aac', 'flac', 'opus'). Vacío si falla.
+function probeAudioCodec(filePath) {
+    return new Promise((resolve) => {
+        cp.execFile('ffprobe', ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', filePath],
+            { timeout: 20000 }, (err, stdout) => {
+                if (err) { resolve(''); return; }
+                resolve(String(stdout || '').trim().toLowerCase());
+            });
+    });
+}
+
+// Convierte audio a MP3 (compatible con el TV). Requiere ffmpeg.
+function transcodeToMp3(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+        cp.execFile('ffmpeg', ['-y', '-i', inputPath, '-vn', '-c:a', 'libmp3lame', '-b:a', '192k', outputPath],
+            { timeout: 0 }, (err) => {
+                if (err) reject(err); else resolve();
+            });
+    });
+}
+
+// Convierte SRT -> WebVTT para los subtítulos del reproductor.
 function srtToVtt(srt) {
     if (/^\s*WEBVTT/i.test(srt)) return srt;
     let vtt = 'WEBVTT\n\n';
@@ -275,7 +329,7 @@ function srtToVtt(srt) {
     return vtt;
 }
 
-// Pick a medium thumbnail ('m', ~800px) so it looks sharp in the grid.
+// Elige una miniatura mediana ('m', ~800px) para que se vea nítida en la rejilla.
 function pickThumb(m) {
     let sizes = [];
     if (m && m.media instanceof Api.MessageMediaPhoto && m.media.photo) {
@@ -307,10 +361,10 @@ async function getEntityById(id, className) {
     if (className === 'User') {
         return await client.getEntity(new Api.PeerUser({ userId: nid }));
     }
-    throw new Error('unknown type: ' + className);
+    throw new Error('tipo desconocido: ' + className);
 }
 
-// ===== HTTP server =====
+// ===== Servidor HTTP =====
 const server = http.createServer(async function (req, res) {
     const u = new URL(req.url, 'http://localhost');
     const p = u.pathname;
@@ -327,6 +381,27 @@ const server = http.createServer(async function (req, res) {
     }
 
     try {
+        if (p === '/api/log' && req.method === 'POST') {
+            let body = '';
+            req.on('data', function (c) { body += c; });
+            req.on('end', function () {
+                logError('client', body);
+                sendJson(res, 200, { ok: true });
+            });
+            return;
+        }
+
+        if (p === '/api/logs') {
+            let content = '';
+            try {
+                const logPath = path.join(BASE, 'server.log');
+                if (fs.existsSync(logPath)) content = fs.readFileSync(logPath, 'utf8');
+            } catch (e) {}
+            const lines = content.split('\n');
+            sendJson(res, 200, { log: lines.slice(-300).join('\n') });
+            return;
+        }
+
         if (p === '/api/status') {
             sendJson(res, 200, {
                 loggedIn: loggedIn,
@@ -378,7 +453,7 @@ const server = http.createServer(async function (req, res) {
             return;
         }
 
-        // ===== Routes that require a session =====
+        // ===== Rutas que requieren sesión =====
         if (!loggedIn) {
             try { await ensureConnected(); } catch (e) {}
         }
@@ -403,13 +478,15 @@ const server = http.createServer(async function (req, res) {
                 const e = d.entity;
                 if (!e) continue;
                 const isSaved = (e.className === 'User' && (e.self === true || (meId && String(e.id) === meId)));
-                if (e.className === 'Channel' || e.className === 'Chat' || isSaved) {
+                const isBot = (e.className === 'User' && e.bot === true);
+                if (e.className === 'Channel' || e.className === 'Chat' || isSaved || isBot) {
                     const item = {
                         id: String(e.id),
                         className: e.className,
-                        title: isSaved ? 'Saved Messages' : (e.title || d.title || ''),
+                        title: isSaved ? 'Saved Messages' : (e.title || e.firstName || e.username || d.title || ''),
                         username: e.username || '',
-                        saved: isSaved
+                        saved: isSaved,
+                        bot: isBot
                     };
                     if (d.folderId === 1) archived.push(item);
                     else main.push(item);
@@ -424,13 +501,15 @@ const server = http.createServer(async function (req, res) {
             const className = u.searchParams.get('className') || 'Channel';
             const offsetId = Number(u.searchParams.get('offsetId') || 0) || 0;
             const entity = await getEntityById(chatId, className);
-            const [pv, docs] = await Promise.all([
+            const [pv, docs, music] = await Promise.all([
                 client.getMessages(entity, { filter: new Api.InputMessagesFilterPhotoVideo(), limit: 100, offsetId: offsetId }),
-                client.getMessages(entity, { filter: new Api.InputMessagesFilterDocument(), limit: 100, offsetId: offsetId })
+                client.getMessages(entity, { filter: new Api.InputMessagesFilterDocument(), limit: 100, offsetId: offsetId }),
+                client.getMessages(entity, { filter: new Api.InputMessagesFilterMusic(), limit: 100, offsetId: offsetId })
             ]);
             const seen = new Map();
             for (const m of pv) { const c = classifyMedia(m); if (c && !seen.has(c.id)) seen.set(c.id, c); }
             for (const m of docs) { const c = classifyMedia(m); if (c && !seen.has(c.id)) seen.set(c.id, c); }
+            for (const m of music) { const c = classifyMedia(m); if (c && !seen.has(c.id)) seen.set(c.id, c); }
             const items = Array.from(seen.values()).sort((a, b) => b.id - a.id);
             sendJson(res, 200, { messages: items, title: entity.title || '' });
             return;
@@ -509,7 +588,8 @@ const server = http.createServer(async function (req, res) {
                 const e = d.entity;
                 if (!e) continue;
                 const isSaved = (e.className === 'User' && (e.self === true || (meId && String(e.id) === meId)));
-                if (e.className !== 'Channel' && e.className !== 'Chat' && !isSaved) continue;
+                const isBot = (e.className === 'User' && e.bot === true);
+                if (e.className !== 'Channel' && e.className !== 'Chat' && !isSaved && !isBot) continue;
                 try {
                     const msgs = await client.getMessages(e, { filter: new Api.InputMessagesFilterPhotoVideo(), search: q, limit: 5 });
                     for (const m of msgs) {
@@ -517,7 +597,7 @@ const server = http.createServer(async function (req, res) {
                         if (c) {
                             c.chatId = String(e.id);
                             c.className = e.className;
-                            c.chatTitle = isSaved ? 'Saved Messages' : (e.title || d.title || '');
+                            c.chatTitle = isSaved ? 'Saved Messages' : (e.title || e.firstName || e.username || d.title || '');
                             results.push(c);
                         }
                     }
@@ -572,13 +652,95 @@ const server = http.createServer(async function (req, res) {
             const msg = msgs[0];
             const ai = classifyMedia(msg);
             if (!ai || ai.type !== 'audio') { res.writeHead(404); res.end('not audio'); return; }
-            const fileName = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex') + '.mp3';
-            const filePath = path.join(CACHE_DIR, fileName);
+            const base = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex');
+            const filePath = path.join(CACHE_DIR, base + '.audio');
             if (!fs.existsSync(filePath)) {
                 await client.downloadMedia(msg, { outputFile: filePath });
             }
             fs.utimes(filePath, new Date(), new Date(), function () {});
-            serveFileWithRange(res, filePath, ai.mimeType, req);
+            // Detecta el códec real y convierte a MP3 si el TV no lo soporta.
+            const codec = await probeAudioCodec(filePath);
+            logError('audio', 'codec=' + codec + ' mime=' + ai.mimeType + ' msgId=' + msgId);
+            const SAFE = ['mp3', 'aac', 'vorbis'];
+            if (codec && SAFE.indexOf(codec) === -1) {
+                const mp3Path = path.join(CACHE_DIR, base + '.mp3conv');
+                if (!fs.existsSync(mp3Path)) {
+                    logError('audio', 'convirtiendo a MP3 codec=' + codec + ' msgId=' + msgId);
+                    try {
+                        await transcodeToMp3(filePath, mp3Path);
+                    } catch (e) {
+                        logError('audio', 'transcode fallido: ' + e.message);
+                        serveFileWithRange(res, filePath, ai.mimeType, req);
+                        return;
+                    }
+                }
+                fs.utimes(mp3Path, new Date(), new Date(), function () {});
+                serveFileWithRange(res, mp3Path, 'audio/mpeg', req);
+                return;
+            }
+            // Ajusta el mime al códec real para que el TV lo decodifique bien.
+            let mime = ai.mimeType;
+            if (codec === 'mp3') mime = 'audio/mpeg';
+            else if (codec === 'aac') mime = 'audio/mp4';
+            else if (codec === 'vorbis') mime = 'audio/ogg';
+            serveFileWithRange(res, filePath, mime, req);
+            return;
+        }
+
+        if (p === '/api/pdfinfo') {
+            const chatId = u.searchParams.get('chat');
+            const className = u.searchParams.get('className') || 'Channel';
+            const msgId = Number(u.searchParams.get('msgId') || 0);
+            const entity = await getEntityById(chatId, className);
+            const msgs = await client.getMessages(entity, { ids: [msgId] });
+            if (!msgs || !msgs.length) { res.writeHead(404); res.end('no msg'); return; }
+            const msg = msgs[0];
+            const base = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex');
+            const pdfPath = path.join(CACHE_DIR, base + '.pdf');
+            if (!fs.existsSync(pdfPath)) {
+                await client.downloadMedia(msg, { outputFile: pdfPath });
+            }
+            let pages = 1;
+            try {
+                const out = cp.execFileSync('pdfinfo', [pdfPath], { encoding: 'utf8' });
+                const m = /Pages:\s+(\d+)/.exec(out);
+                if (m) pages = parseInt(m[1], 10) || 1;
+            } catch (e) { logError('pdfinfo', 'pdfinfo failed: ' + e.message); pages = 1; }
+            sendJson(res, 200, { pages: pages });
+            return;
+        }
+
+        if (p === '/api/pdf') {
+            const chatId = u.searchParams.get('chat');
+            const className = u.searchParams.get('className') || 'Channel';
+            const msgId = Number(u.searchParams.get('msgId') || 0);
+            const page = Number(u.searchParams.get('page') || 1);
+            const isThumb = u.searchParams.get('thumb') === '1';
+            const dpi = isThumb ? '80' : '150';
+            const entity = await getEntityById(chatId, className);
+            const msgs = await client.getMessages(entity, { ids: [msgId] });
+            if (!msgs || !msgs.length) { res.writeHead(404); res.end('no msg'); return; }
+            const msg = msgs[0];
+            const base = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex');
+            const pdfPath = path.join(CACHE_DIR, base + '.pdf');
+            const imgPath = path.join(CACHE_DIR, base + '_p' + page + (isThumb ? '_t' : '') + '.jpg');
+            if (!fs.existsSync(pdfPath)) {
+                await client.downloadMedia(msg, { outputFile: pdfPath });
+            }
+            if (!fs.existsSync(imgPath)) {
+                const prefix = path.join(CACHE_DIR, base + '_p' + page + (isThumb ? '_t' : ''));
+                cp.execFileSync('pdftoppm', ['-f', String(page), '-l', String(page), '-jpeg', '-r', dpi, pdfPath, prefix], { stdio: 'ignore' });
+                // pdftoppm nombra la salida con el número de página (ej: prefix-2.jpg, prefix-02.jpg).
+                const marker = path.basename(prefix) + '-';
+                let found = null;
+                const dirFiles = fs.readdirSync(CACHE_DIR);
+                for (const f of dirFiles) {
+                    if (f.indexOf(marker) === 0 && /\.jpe?g$/i.test(f)) { found = path.join(CACHE_DIR, f); break; }
+                }
+                if (found) fs.renameSync(found, imgPath);
+            }
+            if (!fs.existsSync(imgPath)) { logError('pdf', 'pdftoppm no genero imagen para page=' + page); res.writeHead(500); res.end('pdf convert failed'); return; }
+            serveImage(res, fs.readFileSync(imgPath));
             return;
         }
 
@@ -591,6 +753,7 @@ const server = http.createServer(async function (req, res) {
             if (!msgs || !msgs.length) { res.writeHead(404); res.end('no message'); return; }
             const msg = msgs[0];
             const vi = classifyMedia(msg);
+            logError('video', 'msgId=' + msgId + ' chat=' + chatId + ' type=' + (vi && vi.type) + ' mime=' + (vi && vi.mimeType));
             if (!vi || (vi.type !== 'video' && vi.type !== 'video_file')) { res.writeHead(404); res.end('not a video'); return; }
             const base = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex');
             const fileName = base + '.mp4';
@@ -606,7 +769,7 @@ const server = http.createServer(async function (req, res) {
                         try { fs.unlinkSync(mkvPath); } catch (e) {}
                     } catch (e) {
                         try { fs.unlinkSync(mkvPath); } catch (e2) {}
-                        sendJson(res, 500, { error: 'Could not convert the MKV. Install ffmpeg on the phone (pkg install ffmpeg) and make sure the video is H.264/AAC.' });
+                        sendJson(res, 500, { error: 'No se pudo convertir el MKV. Instala ffmpeg en el teléfono (pkg install ffmpeg) y verifica que el video sea H.264/AAC.' });
                         return;
                     }
                 } else {
@@ -614,26 +777,46 @@ const server = http.createServer(async function (req, res) {
                 }
             }
             fs.utimes(filePath, new Date(), new Date(), function () {});
+            // Detecta códecs que el TV no reproduce (H.265/HEVC, VP9, AV1...) y los convierte a H.264.
+            const codec = await probeVideoCodec(filePath);
+            logError('video', 'codec=' + codec + ' msgId=' + msgId + ' chat=' + chatId);
+            if (codec && codec !== 'h264' && codec !== 'avc' && codec !== 'avc1') {
+                const h264Path = path.join(CACHE_DIR, base + '.h264.mp4');
+                if (!fs.existsSync(h264Path)) {
+                    logError('video', 'transcodificando a H.264 msgId=' + msgId);
+                    try {
+                        await transcodeToH264(filePath, h264Path);
+                    } catch (e) {
+                        logError('video', 'transcode fallido: ' + e.message);
+                        serveFileWithRange(res, filePath, 'video/mp4', req);
+                        return;
+                    }
+                }
+                fs.utimes(h264Path, new Date(), new Date(), function () {});
+                serveFileWithRange(res, h264Path, 'video/mp4', req);
+                return;
+            }
             serveFileWithRange(res, filePath, 'video/mp4', req);
             return;
         }
 
         sendJson(res, 404, { error: 'not_found' });
     } catch (e) {
+        logError('server', e && e.stack ? e.stack : String(e));
         sendJson(res, 500, { error: e.message || String(e) });
     }
 });
 
 server.listen(PORT, '0.0.0.0', function () {
-    console.log('Telegram TV backend listening on http://0.0.0.0:' + PORT);
-    console.log('On the TV use: http://PHONE_IP:' + PORT);
+    console.log('Telegram TV backend escuchando en http://0.0.0.0:' + PORT);
+    console.log('En el TV usa: http://IP_DEL_TELEFONO:' + PORT);
 });
 
-// Clean up temporary media: at startup and every 10 minutes.
+// Limpieza de videos temporales: al arrancar y cada 10 minutos.
 cleanupCache();
 setInterval(cleanupCache, 10 * 60 * 1000);
 
-// On startup, try to validate the saved session
+// Al arrancar, intenta validar la sesión guardada
 (async function () {
     try {
         await client.connect();
@@ -641,11 +824,11 @@ setInterval(cleanupCache, 10 * 60 * 1000);
         loggedIn = auth;
         if (auth) {
             try { meInfo = await client.getMe(); } catch (e) {}
-            console.log('Valid existing session. User:', meInfo ? meInfo.username : '?');
+            console.log('Sesión existente válida. Usuario:', meInfo ? meInfo.username : '?');
         } else {
-            console.log('No session. The app will show the QR to sign in.');
+            console.log('Sin sesión. La app mostrará el QR para iniciar sesión.');
         }
     } catch (e) {
-        console.log('Startup notice:', e.message);
+        console.log('Aviso al arrancar:', e.message);
     }
 })();

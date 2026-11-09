@@ -41,8 +41,10 @@
       pause: 'Pausa',
       play: 'Reproducir',
       converting_mkv: 'Convirtiendo MKV (puede tardar)...',
-      loading_video: 'Cargando video...',
+      loading_video: 'Cargando video (si es HEVC/H.265 se convertirá, puede tardar)...',
       could_not_play: 'No se pudo reproducir. Si es MKV, verifica tener ffmpeg y que sea H.264/AAC.',
+      err_codec: 'Codec no soportado (el video podría ser HEVC/H.265)',
+      err_network: 'Error de red',
       subtitles: 'Subtítulos',
       loading_music: 'Cargando música...',
       loading: 'Cargando...',
@@ -55,6 +57,8 @@
       filter_mkv: 'MKV',
       filter_photos: 'Fotos',
       filter_music: 'Música',
+      filter_pdfs: 'PDFs',
+      pdf: 'PDF',
       months: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
     },
     en: {
@@ -95,8 +99,10 @@
       pause: 'Pause',
       play: 'Play',
       converting_mkv: 'Converting MKV (may take a while)...',
-      loading_video: 'Loading video...',
+      loading_video: 'Loading video (if HEVC/H.265 it will convert, may take a while)...',
       could_not_play: 'Could not play. If it is MKV, make sure ffmpeg is installed and it is H.264/AAC.',
+      err_codec: 'Unsupported codec (the video might be HEVC/H.265)',
+      err_network: 'Network error',
       subtitles: 'Subtitles',
       loading_music: 'Loading music...',
       loading: 'Loading...',
@@ -109,6 +115,8 @@
       filter_mkv: 'MKV',
       filter_photos: 'Photos',
       filter_music: 'Music',
+      filter_pdfs: 'PDFs',
+      pdf: 'PDF',
       months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     }
   };
@@ -146,9 +154,13 @@
   var photoIndex = 0;
   var photoList = [];
   var photoZoom = 1;
+  var pdfMsgId = null;
+  var pdfPage = 1;
+  var pdfPages = 1;
   var playingType = 'video';
   var curMsgId = null;
   var filterType = 'all';
+  var controlsTimer = null;
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -250,6 +262,15 @@
     };
     xhr.onerror = function () { cb(new Error(t('no_connection')), null); };
     xhr.send(null);
+  }
+
+  function logToServer(msg) {
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', BACKEND + '/api/log', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.send(JSON.stringify({ message: msg }));
+    } catch (e) {}
   }
 
   // ===== Setup =====
@@ -365,7 +386,8 @@
       ['video', 'filter_videos'],
       ['video_file', 'filter_mkv'],
       ['photo', 'filter_photos'],
-      ['audio', 'filter_music']
+      ['audio', 'filter_music'],
+      ['pdf', 'filter_pdfs']
     ];
     var h = '<div class="tabs">';
     for (var i = 0; i < items.length; i++) {
@@ -415,8 +437,18 @@
             + chatLabel + '<div class="vmeta">' + dateStr + '</div></div>';
         } else if (v.type === 'audio') {
           html += '<div class="vcard focusable" tabindex="0" data-action="audio" data-msg="' + v.id + '">'
-            + '<div class="vthumb"><span class="vplay">&#9835;</span><span class="tag">' + fmtDur(v.duration) + '</span></div>'
+            + '<div class="vthumb contain"><span class="vplay" style="display:none">&#9835;</span>'
+            + '<img src="' + esc(thumb) + '" onerror="this.style.display=\'none\';this.parentNode.getElementsByClassName(\'vplay\')[0].style.display=\'block\';" alt="">'
+            + '<span class="tag">' + fmtDur(v.duration) + '</span></div>'
             + '<div class="vtitle">' + (cap || (t('song') + ' ' + (i + 1))) + '</div>'
+            + chatLabel + '<div class="vmeta">' + dateStr + ' · ' + fmtSize(v.size) + '</div></div>';
+        } else if (v.type === 'pdf') {
+          var pdfThumb = BACKEND + '/api/pdf?chat=' + enc(v.chatId || curChat) + '&className=' + enc(v.className || curClassName) + '&msgId=' + v.id + '&page=1&thumb=1';
+          html += '<div class="vcard focusable" tabindex="0" data-action="pdf" data-msg="' + v.id + '">'
+            + '<div class="vthumb contain"><span class="vplay" style="display:none;font-size:14px;line-height:44px;">PDF</span>'
+            + '<img src="' + esc(pdfThumb) + '" onerror="this.style.display=\'none\';this.parentNode.getElementsByClassName(\'vplay\')[0].style.display=\'block\';" alt="">'
+            + '<span class="tag">PDF</span></div>'
+            + '<div class="vtitle">' + (cap || (t('pdf') + ' ' + (i + 1))) + '</div>'
             + chatLabel + '<div class="vmeta">' + dateStr + ' · ' + fmtSize(v.size) + '</div></div>';
         } else {
           var isMkv = (v.type === 'video_file');
@@ -508,6 +540,8 @@
   function renderPhoto() {
     var p = photoList[photoIndex];
     if (!p) return;
+    $('photo-img').classList.remove('pdf-mode');
+    $('photo-scroll').scrollTop = 0;
     $('photo-img').src = BACKEND + '/api/photo?chat=' + enc(p.chatId) + '&className=' + enc(p.className) + '&msgId=' + p.id;
     $('photo-img').style.transform = 'scale(' + photoZoom + ')';
     $('photo-caption').textContent = (p.caption || '') + ' (' + (photoIndex + 1) + '/' + photoList.length + ')';
@@ -524,8 +558,31 @@
     photoZoom = 1;
     renderPhoto();
   }
+  function openPdf(msgId) {
+    pdfMsgId = Number(msgId);
+    pdfPage = 1;
+    pdfPages = 1;
+    api('/api/pdfinfo?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + msgId, 'GET', null, function (err, data) {
+      if (!err && data && data.pages) pdfPages = data.pages;
+      renderPdf();
+      setView('photo');
+    });
+  }
+  function renderPdf() {
+    if (!pdfMsgId) return;
+    $('photo-img').classList.add('pdf-mode');
+    $('photo-scroll').scrollTop = 0;
+    $('photo-img').src = BACKEND + '/api/pdf?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + pdfMsgId + '&page=' + pdfPage;
+    $('photo-img').style.transform = 'scale(1)';
+    $('photo-caption').textContent = t('pdf') + ' ' + pdfPage + ' / ' + pdfPages;
+  }
+  function scrollPdf(delta) {
+    var sc = $('photo-scroll');
+    sc.scrollTop += delta;
+  }
 
   // ===== Player =====
+  function mediaEl() { return playingType === 'audio' ? $('audio') : $('video'); }
   function playVideo(msgId) {
     var item = null;
     for (var i = 0; i < messages.length; i++) if (messages[i].id === Number(msgId)) { item = messages[i]; break; }
@@ -534,6 +591,7 @@
     var url = BACKEND + '/api/video?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + enc(String(msgId));
     $('player-title').textContent = curChatTitle || '';
     $('player-msg').textContent = (playingType === 'video_file') ? t('converting_mkv') : t('loading_video');
+    try { $('audio').pause(); } catch (e) {}
     var v = $('video');
     try { v.pause(); } catch (e) {}
     removeSubtitleTracks();
@@ -557,8 +615,16 @@
     }
     v.addEventListener('loadedmetadata', onLoaded);
     v.addEventListener('playing', function () { $('player-msg').textContent = ''; });
-    v.addEventListener('error', function () { $('player-msg').textContent = t('could_not_play'); });
+    v.addEventListener('error', function () {
+      var code = v.error ? v.error.code : -1;
+      var msg = t('could_not_play') + ' [' + code + ']';
+      if (code === 3 || code === 4) msg += ' — ' + t('err_codec');
+      else if (code === 2) msg += ' — ' + t('err_network');
+      $('player-msg').textContent = msg;
+      logToServer('video error code=' + code + ' msgId=' + curMsgId + ' chat=' + curChat);
+    });
     try { v.play(); } catch (e) {}
+    showPlayerControls();
     setView('player');
   }
   function removeSubtitleTracks() {
@@ -600,17 +666,17 @@
     var url = BACKEND + '/api/audio?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + enc(String(msgId));
     $('player-title').textContent = curChatTitle || '';
     $('player-msg').textContent = t('loading_music');
-    var v = $('video');
-    try { v.pause(); } catch (e) {}
+    try { $('video').pause(); } catch (e) {}
     removeSubtitleTracks();
-    v.removeAttribute('src');
-    try { v.load(); } catch (e) {}
-    v.src = url;
-    v.addEventListener('playing', function () { $('player-msg').textContent = ''; });
+    var a = $('audio');
+    a.removeAttribute('src');
+    try { a.load(); } catch (e) {}
+    a.src = url;
     $('btn-playpause').textContent = t('pause');
     $('player-time').textContent = '0:00 / 0:00';
     $('pbar-fill').style.width = '0%';
-    try { v.play(); } catch (e) {}
+    try { a.play(); } catch (e) {}
+    showPlayerControls();
     setView('player');
   }
   function exitPlayer() {
@@ -618,17 +684,20 @@
     var v = $('video');
     try { v.pause(); } catch (e) {}
     v.removeAttribute('src');
+    var a = $('audio');
+    try { a.pause(); } catch (e) {}
+    a.removeAttribute('src');
     setView('main');
     focusFirst();
   }
   function updatePlayerTime() {
-    var v = $('video');
+    var v = mediaEl();
     if (!v.duration) { $('player-time').textContent = '0:00 / 0:00'; return; }
     $('player-time').textContent = fmtDur(v.currentTime) + ' / ' + fmtDur(v.duration);
     $('pbar-fill').style.width = (v.currentTime / v.duration) * 100 + '%';
   }
   function seekBy(seconds) {
-    var v = $('video');
+    var v = mediaEl();
     if (!v.duration) return;
     var t2 = v.currentTime + seconds;
     if (t2 < 0) t2 = 0;
@@ -636,7 +705,25 @@
     v.currentTime = t2;
     updatePlayerTime();
   }
-  function togglePlay() { var v = $('video'); if (v.paused) v.play(); else v.pause(); }
+  function togglePlay() { var v = mediaEl(); if (v.paused) v.play(); else v.pause(); showPlayerControls(); }
+
+  function showPlayerControls() {
+    var top = document.querySelector('#view-player .player-top');
+    var ctrl = document.querySelector('#view-player .player-controls');
+    if (top) top.classList.remove('hidden-controls');
+    if (ctrl) ctrl.classList.remove('hidden-controls');
+    if (controlsTimer) { clearTimeout(controlsTimer); controlsTimer = null; }
+    var v = mediaEl();
+    if (v && !v.paused) {
+      controlsTimer = setTimeout(hidePlayerControls, 3000);
+    }
+  }
+  function hidePlayerControls() {
+    var top = document.querySelector('#view-player .player-top');
+    var ctrl = document.querySelector('#view-player .player-controls');
+    if (top) top.classList.add('hidden-controls');
+    if (ctrl) ctrl.classList.add('hidden-controls');
+  }
 
   // ===== Actions =====
   function onAction(action, el) {
@@ -644,6 +731,7 @@
     else if (action === 'play') playVideo(el.getAttribute('data-msg'));
     else if (action === 'audio') playAudio(el.getAttribute('data-msg'));
     else if (action === 'photo') openPhoto(el.getAttribute('data-msg'));
+    else if (action === 'pdf') openPdf(el.getAttribute('data-msg'));
     else if (action === 'more') loadMore();
     else if (action === 'filter') {
       filterType = el.getAttribute('data-filter');
@@ -685,6 +773,9 @@
       if (dx < 0 && ddx >= 0) continue;
       if (dy > 0 && ddy <= 0) continue;
       if (dy < 0 && ddy >= 0) continue;
+      // mantiene la misma fila (horizontal) o columna (vertical)
+      if (dx !== 0 && (er.bottom <= r.top || er.top >= r.bottom)) continue;
+      if (dy !== 0 && (er.right <= r.left || er.left >= r.right)) continue;
       var primary = dx !== 0 ? ddx * dx : ddy * dy;
       var perp = dx !== 0 ? Math.abs(ddy) : Math.abs(ddx);
       var score = primary + perp * 0.5;
@@ -696,6 +787,7 @@
   document.addEventListener('keydown', function (e) {
     var key = e.keyCode;
     if (screen === 'player') {
+      showPlayerControls();
       if (key === 37) { seekBy(-10); e.preventDefault(); }
       else if (key === 39) { seekBy(10); e.preventDefault(); }
       else if (key === 38) { seekBy(60); e.preventDefault(); }
@@ -705,6 +797,14 @@
       return;
     }
     if (screen === 'photo') {
+      if (pdfMsgId) {
+        if (key === 37) { pdfPage = Math.max(1, pdfPage - 1); renderPdf(); e.preventDefault(); }
+        else if (key === 39) { pdfPage = Math.min(pdfPages, pdfPage + 1); renderPdf(); e.preventDefault(); }
+        else if (key === 38) { scrollPdf(-250); e.preventDefault(); }
+        else if (key === 40) { scrollPdf(250); e.preventDefault(); }
+        else if (key === 461 || key === 27 || key === 13) { pdfMsgId = null; setView('main'); focusFirst(); e.preventDefault(); }
+        return;
+      }
       if (key === 37) { nextPhoto(-1); e.preventDefault(); }
       else if (key === 39) { nextPhoto(1); e.preventDefault(); }
       else if (key === 38) { zoomPhoto(0.5); e.preventDefault(); }
@@ -782,13 +882,28 @@
 
     var v = $('video');
     v.addEventListener('timeupdate', function () {
+      if (playingType === 'audio') return;
       updatePlayerTime();
       if ((playingType === 'video' || playingType === 'video_file') && curChat && curMsgId && v.duration && v.currentTime > 0) {
         progress[progKey(curChat, curMsgId)] = Math.floor(v.currentTime);
       }
     });
-    v.addEventListener('play', function () { $('btn-playpause').textContent = t('pause'); });
-    v.addEventListener('pause', function () { $('btn-playpause').textContent = t('play'); });
+    v.addEventListener('play', function () { if (playingType !== 'audio') $('btn-playpause').textContent = t('pause'); });
+    v.addEventListener('pause', function () { if (playingType !== 'audio') $('btn-playpause').textContent = t('play'); });
+
+    var a = $('audio');
+    a.addEventListener('timeupdate', function () {
+      if (playingType !== 'audio') return;
+      updatePlayerTime();
+    });
+    a.addEventListener('playing', function () { $('player-msg').textContent = ''; });
+    a.addEventListener('play', function () { if (playingType === 'audio') $('btn-playpause').textContent = t('pause'); });
+    a.addEventListener('pause', function () { if (playingType === 'audio') $('btn-playpause').textContent = t('play'); });
+    a.addEventListener('error', function () {
+      var code = a.error ? a.error.code : -1;
+      $('player-msg').textContent = t('could_not_play') + ' [' + code + ']';
+      logToServer('audio error code=' + code + ' msgId=' + curMsgId + ' chat=' + curChat);
+    });
 
     $('main-content').addEventListener('click', function (e) {
       var el = findUp(e.target, 'data-action');
