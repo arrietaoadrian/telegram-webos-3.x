@@ -741,11 +741,13 @@ const server = http.createServer(async function (req, res) {
             }
             fs.utimes(filePath, new Date(), new Date(), function () {});
             // Detecta el códec real y convierte a MP3 si el TV no lo soporta.
+            // Con native=1 (TV moderno) se sirve el audio tal cual, sin transcodificar.
+            const native = u.searchParams.get('native') === '1';
             const codec = await probeAudioCodec(filePath);
-            logError('audio', 'codec=' + codec + ' mime=' + ai.mimeType + ' msgId=' + msgId);
+            logError('audio', 'codec=' + codec + ' native=' + native + ' mime=' + ai.mimeType + ' msgId=' + msgId);
             const SAFE = ['mp3', 'aac', 'vorbis'];
-            if (codec && SAFE.indexOf(codec) === -1) {
-                const mp3Path = path.join(CACHE_DIR, base + '.mp3conv');
+            if (!native && codec && SAFE.indexOf(codec) === -1) {
+                const mp3Path = path.join(CACHE_DIR, base + '.mp3');
                 if (!fs.existsSync(mp3Path)) {
                     logError('audio', 'convirtiendo a MP3 codec=' + codec + ' msgId=' + msgId);
                     try {
@@ -764,7 +766,9 @@ const server = http.createServer(async function (req, res) {
             let mime = ai.mimeType;
             if (codec === 'mp3') mime = 'audio/mpeg';
             else if (codec === 'aac') mime = 'audio/mp4';
-            else if (codec === 'vorbis') mime = 'audio/ogg';
+            else if (codec === 'vorbis' || codec === 'opus') mime = 'audio/ogg';
+            else if (codec === 'flac') mime = 'audio/flac';
+            else if (codec === 'wav' || codec === 'pcm_s16le') mime = 'audio/wav';
             serveFileWithRange(res, filePath, mime, req);
             return;
         }
