@@ -167,25 +167,53 @@ function serveImage(res, buf) {
 // Descarga un archivo de Telegram y borra restos parciales si falla (timeouts
 // de upload.GetFile dejan archivos corruptos que rompen pdftoppm después).
 async function safeDownloadMedia(msg, filePath) {
+    const expected = getExpectedSize(msg);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            await client.downloadMedia(msg, { outputFile: filePath });
+            let size = 0;
+            try { size = fs.statSync(filePath).size; } catch (e) {}
+            if (!size) throw new Error('downloaded file is empty');
+            if (expected && size !== expected) throw new Error('downloaded file is incomplete (' + size + '/' + expected + ')');
+            return;
+        } catch (e) {
+            try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (e2) {}
+            if (attempt === 3) throw e;
+            logError('download', 'reintento ' + attempt + ' (' + e.message + ')');
+            await new Promise(function (r) { setTimeout(r, 2000 * attempt); });
+        }
+    }
+}
+
+// Tamaño esperado del archivo según el mensaje de Telegram (0 si no se conoce).
+function getExpectedSize(msg) {
     try {
-        await client.downloadMedia(msg, { outputFile: filePath });
-    } catch (e) {
-        try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (e2) {}
-        throw e;
-    }
-    let size = 0;
-    try { size = fs.statSync(filePath).size; } catch (e) {}
-    if (!size) {
-        try { fs.unlinkSync(filePath); } catch (e) {}
-        throw new Error('downloaded file is empty');
-    }
+        const d = msg && msg.media && msg.media.document;
+        if (d && d.size) return Number(d.size);
+    } catch (e) {}
+    return 0;
 }
 
 // Evita que dos peticiones descarguen el mismo archivo a la vez (corromperían
 // el PDF/audio/video al escribir sobre la misma ruta).
 const downloadLocks = new Map();
 function ensureDownloaded(msg, filePath) {
-    if (fs.existsSync(filePath)) return Promise.resolve();
+    const expected = getExpectedSize(msg);
+    if (fs.existsSync(filePath)) {
+        // Verifica que la descarga esté completa: si el tamaño no coincide con el
+        // esperado (descarga interrumpida), bórrala y vuelve a descargar.
+        try {
+            const st = fs.statSync(filePath);
+            if (expected && st.size !== expected) {
+                logError('download', 'incompleto ' + filePath + ' (' + st.size + '/' + expected + ') -> redescargando');
+                try { fs.unlinkSync(filePath); } catch (e) {}
+            } else {
+                return Promise.resolve();
+            }
+        } catch (e) {
+            return Promise.resolve();
+        }
+    }
     let lock = downloadLocks.get(filePath);
     if (!lock) {
         lock = safeDownloadMedia(msg, filePath).then(function (v) {
