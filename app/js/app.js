@@ -169,6 +169,8 @@
   var didSeek = false;
   var videoRetry = 0;
   var videoLoadTimer = null;
+  var curMediaChat = null;
+  var curMediaClass = null;
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -523,6 +525,7 @@
       showLoading(false);
       if (err) { $('main-content').innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; return; }
       var list = (data && data.messages) ? data.messages : [];
+      messages = list;
       renderGrid(list, true, false, q);
     });
   }
@@ -595,6 +598,7 @@
     pdfMsgId = Number(msgId);
     pdfPage = 1;
     pdfPages = 1;
+    resolveMediaChat(msgId);
     var img = $('photo-img');
     img.onload = null;
     img.onerror = null;
@@ -604,14 +608,14 @@
     setView('photo');
     $('photo-caption').textContent = t('pdf') + ' 1 / ...';
     $('btn-photo-back').style.display = 'none';
-    api('/api/pdfinfo?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + msgId, 'GET', null, function (err, data) {
+    api('/api/pdfinfo?chat=' + enc(curMediaChat) + '&className=' + enc(curMediaClass) + '&msgId=' + msgId, 'GET', null, function (err, data) {
       if (!err && data && data.pages) pdfPages = data.pages;
       renderPdf();
     });
   }
   var pdfPreloads = [];
   function pdfUrl(page) {
-    return BACKEND + '/api/pdf?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + pdfMsgId + '&page=' + page;
+    return BACKEND + '/api/pdf?chat=' + enc(curMediaChat) + '&className=' + enc(curMediaClass) + '&msgId=' + pdfMsgId + '&page=' + page;
   }
   function preloadPdfPage(page) {
     if (!pdfMsgId || page < 1 || page > pdfPages) return;
@@ -661,6 +665,20 @@
   }
 
   // ===== Player =====
+  // Resuelve el chat real del mensaje (para resultados de búsqueda global,
+  // donde curChat es null pero el mensaje trae su propio chatId).
+  function resolveMediaChat(msgId) {
+    curMediaChat = curChat;
+    curMediaClass = curClassName;
+    for (var i = 0; i < messages.length; i++) {
+      if (messages[i].id === Number(msgId)) {
+        curMediaChat = messages[i].chatId || curChat;
+        curMediaClass = messages[i].className || curClassName;
+        return;
+      }
+    }
+  }
+
   function mediaEl() { return playingType === 'audio' ? $('audio') : $('video'); }
   function startVideoLoad() {
     if (videoLoadTimer) { clearTimeout(videoLoadTimer); videoLoadTimer = null; }
@@ -682,12 +700,13 @@
     for (var i = 0; i < messages.length; i++) if (messages[i].id === Number(msgId)) { item = messages[i]; break; }
     playingType = item ? item.type : 'video';
     curMsgId = Number(msgId);
-    videoUrl = BACKEND + '/api/video?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + enc(String(msgId));
+    resolveMediaChat(msgId);
+    videoUrl = BACKEND + '/api/video?chat=' + enc(curMediaChat) + '&className=' + enc(curMediaClass) + '&msgId=' + enc(String(msgId));
     $('player-title').textContent = curChatTitle || '';
     $('player-msg').textContent = (playingType === 'video_file') ? t('converting_mkv') : t('loading_video');
     try { $('audio').pause(); } catch (e) {}
     removeSubtitleTracks();
-    pendingResume = progress[progKey(curChat, msgId)] || 0;
+    pendingResume = progress[progKey(curMediaChat, msgId)] || 0;
     didSeek = false;
     videoRetry = 0;
     startVideoLoad();
@@ -709,7 +728,7 @@
       var n = (subList[i].fileName || '').toLowerCase().replace(/\.(srt|ass|vtt)$/i, '');
       if (n && vidName && (vidName.indexOf(n) !== -1 || n.indexOf(vidName) !== -1)) { chosen = subList[i]; break; }
     }
-    apiText('/api/subtitle?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + chosen.id, function (err, vtt) {
+    apiText('/api/subtitle?chat=' + enc(curMediaChat) + '&className=' + enc(curMediaClass) + '&msgId=' + chosen.id, function (err, vtt) {
       if (err) return;
       try {
         var blob = new Blob([vtt], { type: 'text/vtt' });
@@ -730,7 +749,8 @@
   function playAudio(msgId) {
     playingType = 'audio';
     curMsgId = Number(msgId);
-    var url = BACKEND + '/api/audio?chat=' + enc(curChat) + '&className=' + enc(curClassName) + '&msgId=' + enc(String(msgId));
+    resolveMediaChat(msgId);
+    var url = BACKEND + '/api/audio?chat=' + enc(curMediaChat) + '&className=' + enc(curMediaClass) + '&msgId=' + enc(String(msgId));
     $('player-title').textContent = curChatTitle || '';
     $('player-msg').textContent = t('loading_music');
     try { $('video').pause(); } catch (e) {}
@@ -902,9 +922,9 @@
 
   function saveCurProgress() {
     var v = $('video');
-    if (!curChat || !curMsgId) return;
+    if (!curMediaChat || !curMsgId) return;
     if ((playingType === 'video' || playingType === 'video_file') && v.duration && v.currentTime > 5) {
-      progress[progKey(curChat, curMsgId)] = Math.floor(v.currentTime);
+      progress[progKey(curMediaChat, curMsgId)] = Math.floor(v.currentTime);
       saveProgress();
     }
   }
@@ -959,8 +979,8 @@
     v.addEventListener('timeupdate', function () {
       if (playingType === 'audio') return;
       updatePlayerTime();
-      if ((playingType === 'video' || playingType === 'video_file') && curChat && curMsgId && v.duration && v.currentTime > 0) {
-        progress[progKey(curChat, curMsgId)] = Math.floor(v.currentTime);
+      if ((playingType === 'video' || playingType === 'video_file') && curMediaChat && curMsgId && v.duration && v.currentTime > 0) {
+        progress[progKey(curMediaChat, curMsgId)] = Math.floor(v.currentTime);
       }
     });
     v.addEventListener('play', function () { if (playingType !== 'audio') $('btn-playpause').textContent = t('pause'); });
