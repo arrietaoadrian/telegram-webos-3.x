@@ -50,6 +50,11 @@
       no_connection_server: 'Sin conexión con el servidor (',
       error: 'Error: ',
       line: 'línea',
+      filter_all: 'Todos',
+      filter_videos: 'Videos',
+      filter_mkv: 'MKV',
+      filter_photos: 'Fotos',
+      filter_music: 'Música',
       months: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
     },
     en: {
@@ -99,6 +104,11 @@
       no_connection_server: 'No connection to the server (',
       error: 'Error: ',
       line: 'line',
+      filter_all: 'All',
+      filter_videos: 'Videos',
+      filter_mkv: 'MKV',
+      filter_photos: 'Photos',
+      filter_music: 'Music',
       months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     }
   };
@@ -138,6 +148,7 @@
   var photoZoom = 1;
   var playingType = 'video';
   var curMsgId = null;
+  var filterType = 'all';
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -342,15 +353,44 @@
     offsetId = 0;
     subList = [];
     activeSub = null;
+    filterType = 'all';
     setView('main');
     setTopbar({ title: title || t('channels'), showArchive: false });
     loadMessages('');
   }
 
+  function filterBar() {
+    var items = [
+      ['all', 'filter_all'],
+      ['video', 'filter_videos'],
+      ['video_file', 'filter_mkv'],
+      ['photo', 'filter_photos'],
+      ['audio', 'filter_music']
+    ];
+    var h = '<div class="tabs">';
+    for (var i = 0; i < items.length; i++) {
+      var cls = 'tab focusable' + (filterType === items[i][0] ? ' active' : '');
+      h += '<button class="' + cls + '" data-action="filter" data-filter="' + items[i][0] + '">' + t(items[i][1]) + '</button>';
+    }
+    h += '</div>';
+    return h;
+  }
+
   function renderGrid(list, showBack, showLoadMore, query) {
+    var showFilters = showBack && !query;
+    if (showFilters && filterType !== 'all') {
+      var filtered = [];
+      for (var fi = 0; fi < list.length; fi++) {
+        if (list[fi].type === filterType) filtered.push(list[fi]);
+      }
+      list = filtered;
+    }
     var html = '';
     if (showBack) {
       html += '<div class="row focusable" tabindex="0" data-action="back-list"><div class="avatar" style="background:#444"><span class="letter">&#8592;</span></div><div><div class="row-title">' + (query ? t('back_all') : t('back_channels')) + '</div></div></div>';
+    }
+    if (showFilters) {
+      html += filterBar();
     }
     if (!list.length) {
       html += '<div class="empty">' + (query ? t('no_results') + esc(query) + '".' : t('no_media')) + '</div>';
@@ -605,6 +645,10 @@
     else if (action === 'audio') playAudio(el.getAttribute('data-msg'));
     else if (action === 'photo') openPhoto(el.getAttribute('data-msg'));
     else if (action === 'more') loadMore();
+    else if (action === 'filter') {
+      filterType = el.getAttribute('data-filter');
+      renderGrid(messages, true, messages.length >= 100, '');
+    }
     else if (action === 'back-list') { if (lastList === 'archived') showArchived(); else showChannels(); }
   }
 

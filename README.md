@@ -41,6 +41,7 @@ This project splits the work in two:
 - **Subtitles** (.srt/.vtt) picked up automatically when a matching file is posted in the chat.
 - **Music**: songs posted in channels play in the same player.
 - **Search**: global (across all chats) and per-chat.
+- **Type filter**: tabs to switch between All / Videos (MP4) / MKV / Photos / Music.
 - **Saved Messages** pinned at the top, and **archived chats** in a separate list.
 - Publication date/time on every item, and "load more" pagination.
 - Spatial navigation (d-pad arrows + OK + Back) with video controls (seek ±10s / ±1min, play/pause, progress bar).
