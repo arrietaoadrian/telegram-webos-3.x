@@ -351,7 +351,8 @@ function serveFileWithRange(res, filePath, mimeType, req) {
                 'Content-Range': 'bytes ' + start + '-' + end + '/' + total,
                 'Accept-Ranges': 'bytes',
                 'Content-Length': end - start + 1,
-                'Access-Control-Allow-Origin': '*'
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges'
             });
             const stream = fs.createReadStream(filePath, { start: start, end: end });
             stream.pipe(res);
@@ -361,7 +362,8 @@ function serveFileWithRange(res, filePath, mimeType, req) {
                 'Content-Type': mimeType,
                 'Accept-Ranges': 'bytes',
                 'Content-Length': total,
-                'Access-Control-Allow-Origin': '*'
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges'
             });
             fs.createReadStream(filePath).pipe(res);
         }
@@ -550,7 +552,8 @@ const server = http.createServer(async function (req, res) {
         res.writeHead(204, {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type'
+            'Access-Control-Allow-Headers': 'Content-Type, Range',
+            'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges'
         });
         res.end();
         return;
@@ -867,6 +870,29 @@ const server = http.createServer(async function (req, res) {
             return;
         }
 
+        if (p === '/api/pdfraw') {
+            const chatId = u.searchParams.get('chat');
+            const className = u.searchParams.get('className') || 'Channel';
+            const msgId = Number(u.searchParams.get('msgId') || 0);
+            const entity = await getEntityById(chatId, className);
+            const msgs = await client.getMessages(entity, { ids: [msgId] });
+            if (!msgs || !msgs.length) { res.writeHead(404); res.end('no msg'); return; }
+            const msg = msgs[0];
+            const base = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex');
+            const pdfPath = path.join(CACHE_DIR, base + '.pdf');
+            try {
+                await ensureDownloaded(msg, pdfPath);
+            } catch (e) {
+                logError('pdfraw', 'download failed: ' + e.message);
+                sendJson(res, 500, { error: 'PDF download failed' });
+                return;
+            }
+            // Sirve el PDF original para que el TV lo renderice con pdf.js
+            // (soporta Range para carga parcial y CORS para fetch).
+            serveFileWithRange(res, pdfPath, 'application/pdf', req);
+            return;
+        }
+
         if (p === '/api/pdfinfo') {
             const chatId = u.searchParams.get('chat');
             const className = u.searchParams.get('className') || 'Channel';
@@ -1006,6 +1032,30 @@ const server = http.createServer(async function (req, res) {
                 }
                 fs.utimes(h264Path, new Date(), new Date(), function () {});
                 serveFileWithRange(res, h264Path, 'video/mp4', req);
+                return;
+            }
+            // TVs modernos (native=1): se sirve el MP4 tal cual, pero si el "moov"
+            // está al final (sin faststart) el TV tarda en arrancar o no puede
+            // buscar. Se remuxea a faststart una sola vez (solo archivos <= 1 GB,
+            // para no duplicar películas enormes en el teléfono).
+            if (native) {
+                let servePath = filePath;
+                try {
+                    const st = fs.statSync(filePath);
+                    if (st.size <= 1024 * 1024 * 1024) {
+                        const fsPath = path.join(CACHE_DIR, base + '.fs.mp4');
+                        if (!fs.existsSync(fsPath)) {
+                            logError('video', 'remux faststart msgId=' + msgId);
+                            await remuxMkv(filePath, fsPath);
+                        }
+                        fs.utimes(fsPath, new Date(), new Date(), function () {});
+                        servePath = fsPath;
+                    }
+                } catch (e) {
+                    logError('video', 'faststart fallido: ' + e.message);
+                    servePath = filePath;
+                }
+                serveFileWithRange(res, servePath, 'video/mp4', req);
                 return;
             }
             serveFileWithRange(res, filePath, 'video/mp4', req);
