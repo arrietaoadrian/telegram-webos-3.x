@@ -168,19 +168,28 @@ function serveImage(res, buf) {
 // de upload.GetFile dejan archivos corruptos que rompen pdftoppm después).
 async function safeDownloadMedia(msg, filePath) {
     const expected = getExpectedSize(msg);
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 5; attempt++) {
         try {
             await client.downloadMedia(msg, { outputFile: filePath });
             let size = 0;
             try { size = fs.statSync(filePath).size; } catch (e) {}
             if (!size) throw new Error('downloaded file is empty');
-            if (expected && size !== expected) throw new Error('downloaded file is incomplete (' + size + '/' + expected + ')');
+            // Si quedó MUY por debajo del esperado (descarga cortada de verdad),
+            // reintenta. Diferencias pequeñas son normales: Telegram a veces
+            // reporta un tamaño algo mayor al real.
+            if (expected && size > 0 && (expected - size) > 2 * 1024 * 1024) {
+                throw new Error('downloaded file is too short (' + size + '/' + expected + ')');
+            }
+            // Valida que el archivo se pueda leer (ffprobe/pdfinfo). Un archivo
+            // truncado/corrupto falla aquí y se reintenta la descarga.
+            const valid = await isMediaFileValid(msg, filePath);
+            if (!valid) throw new Error('downloaded file is corrupt');
             return;
         } catch (e) {
             try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (e2) {}
-            if (attempt === 3) throw e;
+            if (attempt === 5) throw e;
             logError('download', 'reintento ' + attempt + ' (' + e.message + ')');
-            await new Promise(function (r) { setTimeout(r, 2000 * attempt); });
+            await new Promise(function (r) { setTimeout(r, 3000 * attempt); });
         }
     }
 }
@@ -194,25 +203,49 @@ function getExpectedSize(msg) {
     return 0;
 }
 
+// Devuelve true si el archivo descargado se puede leer correctamente con la
+// herramienta correspondiente (ffprobe/pdfinfo). Un archivo truncado o corrupto
+// (descarga cortada) falla esta validación y obliga a reintentar la descarga.
+// Es la señal correcta de "completo": Telegram a veces reporta un tamaño un poco
+// mayor al real, así que comparar tamaños exactos da falsos "incompletos".
+async function isMediaFileValid(msg, filePath) {
+    const type = classifyMedia(msg);
+    if (!type) return true;
+    try {
+        if (type.type === 'pdf') {
+            return await new Promise(function (resolve) {
+                cp.execFile('pdfinfo', [filePath], { timeout: 20000 }, function (err) {
+                    resolve(!err);
+                });
+            });
+        }
+        if (type.type === 'video' || type.type === 'video_file') {
+            const c = await probeVideoCodec(filePath);
+            return !!c;
+        }
+        if (type.type === 'audio') {
+            const c = await probeAudioCodec(filePath);
+            return !!c;
+        }
+    } catch (e) {}
+    return true;
+}
+
 // Evita que dos peticiones descarguen el mismo archivo a la vez (corromperían
 // el PDF/audio/video al escribir sobre la misma ruta).
 const downloadLocks = new Map();
-function ensureDownloaded(msg, filePath) {
-    const expected = getExpectedSize(msg);
+async function ensureDownloaded(msg, filePath) {
     if (fs.existsSync(filePath)) {
-        // Verifica que la descarga esté completa: si el tamaño no coincide con el
-        // esperado (descarga interrumpida), bórrala y vuelve a descargar.
-        try {
-            const st = fs.statSync(filePath);
-            if (expected && st.size !== expected) {
-                logError('download', 'incompleto ' + filePath + ' (' + st.size + '/' + expected + ') -> redescargando');
-                try { fs.unlinkSync(filePath); } catch (e) {}
-            } else {
-                return Promise.resolve();
-            }
-        } catch (e) {
-            return Promise.resolve();
+        let size = 0;
+        try { size = fs.statSync(filePath).size; } catch (e) {}
+        if (size > 0) {
+            // Revalida archivos en cache: si quedaron corruptos (descarga previa
+            // cortada), bórralos para volver a descargarlos.
+            const valid = await isMediaFileValid(msg, filePath);
+            if (valid) return;
+            logError('download', 'cache corrupto, redescargando ' + path.basename(filePath));
         }
+        try { fs.unlinkSync(filePath); } catch (e) {}
     }
     let lock = downloadLocks.get(filePath);
     if (!lock) {
@@ -408,6 +441,39 @@ function transcodeToH264(inputPath, outputPath) {
                 if (err) reject(err); else resolve();
             });
     });
+}
+
+// Descarga (y remuxea si es MKV) el video, reintentando si el archivo queda
+// corrupto/truncado (códec vacío = no se puede leer). Devuelve la ruta del MP4
+// listo para servir y el códec detectado.
+async function prepareVideo(msg, vi, base) {
+    const fileName = base + '.mp4';
+    const filePath = path.join(CACHE_DIR, fileName);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        if (!fs.existsSync(filePath)) {
+            if (vi.type === 'video_file') {
+                const mkvPath = path.join(CACHE_DIR, base + '.mkv');
+                if (!fs.existsSync(mkvPath)) {
+                    await ensureDownloaded(msg, mkvPath);
+                }
+                try {
+                    await remuxMkv(mkvPath, filePath);
+                    try { fs.unlinkSync(mkvPath); } catch (e) {}
+                } catch (e) {
+                    try { fs.unlinkSync(mkvPath); } catch (e2) {}
+                    throw new Error('No se pudo convertir el MKV. Instala ffmpeg en el teléfono (pkg install ffmpeg) y verifica que el video sea H.264/AAC.');
+                }
+            } else {
+                await ensureDownloaded(msg, filePath);
+            }
+        }
+        const codec = await probeVideoCodec(filePath);
+        if (codec) return { filePath: filePath, codec: codec };
+        logError('video', 'codec vacio (archivo corrupto/truncado), intento ' + attempt + '/3');
+        try { fs.unlinkSync(filePath); } catch (e) {}
+        if (vi.type === 'video_file') { try { fs.unlinkSync(path.join(CACHE_DIR, base + '.mkv')); } catch (e) {} }
+    }
+    return { filePath: filePath, codec: '' };
 }
 
 // Devuelve el nombre del códec de audio (ej: 'mp3', 'aac', 'flac', 'opus'). Vacío si falla.
@@ -912,31 +978,19 @@ const server = http.createServer(async function (req, res) {
             logError('video', 'msgId=' + msgId + ' chat=' + chatId + ' type=' + (vi && vi.type) + ' mime=' + (vi && vi.mimeType));
             if (!vi || (vi.type !== 'video' && vi.type !== 'video_file')) { res.writeHead(404); res.end('not a video'); return; }
             const base = crypto.createHash('md5').update(chatId + ':' + msgId).digest('hex');
-            const fileName = base + '.mp4';
-            const filePath = path.join(CACHE_DIR, fileName);
-            if (!fs.existsSync(filePath)) {
-                if (vi.type === 'video_file') {
-                    const mkvPath = path.join(CACHE_DIR, base + '.mkv');
-                    if (!fs.existsSync(mkvPath)) {
-                        await ensureDownloaded(msg, mkvPath);
-                    }
-                    try {
-                        await remuxMkv(mkvPath, filePath);
-                        try { fs.unlinkSync(mkvPath); } catch (e) {}
-                    } catch (e) {
-                        try { fs.unlinkSync(mkvPath); } catch (e2) {}
-                        sendJson(res, 500, { error: 'No se pudo convertir el MKV. Instala ffmpeg en el teléfono (pkg install ffmpeg) y verifica que el video sea H.264/AAC.' });
-                        return;
-                    }
-                } else {
-                    await ensureDownloaded(msg, filePath);
-                }
+            let prepared;
+            try {
+                prepared = await prepareVideo(msg, vi, base);
+            } catch (e) {
+                sendJson(res, 500, { error: e.message });
+                return;
             }
+            const filePath = prepared.filePath;
             fs.utimes(filePath, new Date(), new Date(), function () {});
             // Detecta códecs que el TV no reproduce (H.265/HEVC, VP9, AV1...) y los convierte a H.264.
             // Si el cliente manda native=1 (TV moderno), se sirve el archivo tal cual sin transcodificar.
             const native = u.searchParams.get('native') === '1';
-            const codec = await probeVideoCodec(filePath);
+            const codec = prepared.codec;
             logError('video', 'codec=' + codec + ' native=' + native + ' msgId=' + msgId + ' chat=' + chatId);
             if (!native && codec && codec !== 'h264' && codec !== 'avc' && codec !== 'avc1') {
                 const h264Path = path.join(CACHE_DIR, base + '.h264.mp4');
